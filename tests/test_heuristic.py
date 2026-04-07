@@ -9,8 +9,10 @@ from megagem.players import (
     AdaptiveHeuristicAI,
     HeuristicAI,
     HyperAdaptiveAI,
+    HyperAdaptiveSplitAI,
     HypergeometricAI,
     RandomAI,
+    _BidModel,
     _compute_discount_features,
     _ev_remaining_auctions,
     _expected_final_display,
@@ -671,6 +673,110 @@ class HyperAdaptiveHeadToHeadTest(unittest.TestCase):
         win_rate = self._run("E")
         self.assertGreater(
             win_rate, 0.6, f"HyperAdaptive only won {win_rate:.0%} on chart E"
+        )
+
+
+class HyperAdaptiveSplitBidTest(unittest.TestCase):
+    """Per-head bid tests for HyperAdaptiveSplitAI."""
+
+    def _state(self, chart: str = "A") -> tuple[GameState, PlayerState]:
+        state = _empty_state(chart=chart)
+        me = state.player_states[0]
+        # Plausible mid-game state — auction deck non-empty so EV math runs.
+        state.auction_deck = [TreasureCard(1)] * 10
+        state.gem_deck = [GemCard(Color.BLUE)] * 5
+        return state, me
+
+    def test_default_treasure_bid_matches_old_hyper_adaptive(self):
+        # The default treasure model copies HyperAdaptiveAI's class-level
+        # weights byte-for-byte; given identical state, the two AIs must
+        # bid the same thing on a treasure card.
+        state, me = self._state(chart="A")
+        me.coins = 25
+        me.collection_gems = Counter({Color.BLUE: 1})
+        card = TreasureCard(2)
+
+        old = HyperAdaptiveAI("Old")
+        split = HyperAdaptiveSplitAI("Split")
+
+        self.assertEqual(
+            split.choose_bid(state, me, card),
+            old.choose_bid(state, me, card),
+        )
+
+    def test_invest_uses_invest_model_not_treasure_model(self):
+        # Treasure model returns 1.0, invest model returns 0.0. If choose_bid
+        # were leaking the treasure head into invests, we'd see a large bid;
+        # instead the floor (1) kicks in because the head is silent.
+        treasure = _BidModel(1.0, 0.0, 0.0, 0.0, 0.0, 0.0)  # always 1
+        invest = _BidModel(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)    # always 0
+        loan = _BidModel(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        ai = HyperAdaptiveSplitAI("S", treasure=treasure, invest=invest, loan=loan)
+
+        state, me = self._state()
+        me.coins = 30
+        bid = ai.choose_bid(state, me, InvestCard(amount=10))
+        self.assertEqual(bid, 1)  # forced token bid, not 30
+
+    def test_loan_zero_when_loan_model_negative(self):
+        # Deeply negative bias → discount clamped to 0 → bid 0 even with cap > 0.
+        treasure = _BidModel(1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        invest = _BidModel(1.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        loan = _BidModel(-5.0, 0.0, 0.0, 0.0, 0.0, 0.0)  # always 0
+        ai = HyperAdaptiveSplitAI("S", treasure=treasure, invest=invest, loan=loan)
+
+        state, me = self._state()
+        me.coins = 20
+        self.assertEqual(ai.choose_bid(state, me, LoanCard(amount=10)), 0)
+
+    def test_from_weights_round_trip(self):
+        weights = [
+            # treasure
+            0.11, 0.12, 0.13, 0.14, 0.15, 0.16,
+            # invest
+            0.21, 0.22, 0.23, 0.24, 0.25, 0.26,
+            # loan
+            0.31, 0.32, 0.33, 0.34, 0.35, 0.36,
+        ]
+        ai = HyperAdaptiveSplitAI.from_weights("Evo", weights)
+        self.assertEqual(ai.treasure_model.bias, 0.11)
+        self.assertEqual(ai.treasure_model.w_progress, 0.12)
+        self.assertEqual(ai.treasure_model.w_my_cash, 0.13)
+        self.assertEqual(ai.treasure_model.w_avg_cash, 0.14)
+        self.assertEqual(ai.treasure_model.w_top_cash, 0.15)
+        self.assertEqual(ai.treasure_model.w_variance, 0.16)
+        self.assertEqual(ai.invest_model.bias, 0.21)
+        self.assertEqual(ai.invest_model.w_variance, 0.26)
+        self.assertEqual(ai.loan_model.bias, 0.31)
+        self.assertEqual(ai.loan_model.w_variance, 0.36)
+        # Wrong-length input should raise.
+        with self.assertRaises(ValueError):
+            HyperAdaptiveSplitAI.from_weights("Bad", [0.0] * 17)
+
+
+class HyperAdaptiveSplitHeadToHeadTest(unittest.TestCase):
+    """Smoke test: defaults shouldn't be broken."""
+
+    def test_split_beats_random_chart_a(self):
+        wins = 0
+        games = 60
+        for seed in range(games):
+            players = [
+                HyperAdaptiveSplitAI("HS", seed=seed * 23),
+                RandomAI("R1", seed=seed * 23 + 1),
+                RandomAI("R2", seed=seed * 23 + 2),
+                RandomAI("R3", seed=seed * 23 + 3),
+            ]
+            state = setup_game(players, chart="A", seed=seed)
+            rng = random.Random(seed)
+            while not is_game_over(state):
+                play_round(state, rng=rng)
+            scores = score_game(state)
+            if scores[0]["total"] > max(s["total"] for s in scores[1:]):
+                wins += 1
+        win_rate = wins / games
+        self.assertGreater(
+            win_rate, 0.6, f"HyperAdaptiveSplit only won {win_rate:.0%} on chart A"
         )
 
 
