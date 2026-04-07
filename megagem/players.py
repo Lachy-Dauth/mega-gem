@@ -837,3 +837,129 @@ class HypergeometricAI(Player):
                 best_card = card
 
         return best_card if best_card is not None else my_state.hand[0]
+
+
+# ----------------------------------------------------------------------------
+# HyperAdaptiveAI: AdaptiveHeuristicAI's linear-model bid sizing fed by the
+# HypergeometricAI value estimator. Synthesises both upgrades — the better
+# per-gem value estimate AND the state-dependent discount — into a single
+# player. Everything else (discount weights, loan thresholds, reveal logic)
+# is inherited from AdaptiveHeuristicAI.
+# ----------------------------------------------------------------------------
+
+
+def _hyper_ev_remaining_auctions(
+    state: "GameState", my_state: "PlayerState"
+) -> float:
+    """Hyper-aware version of ``_ev_remaining_auctions``.
+
+    Same shape as the original — average per-gem value × remaining sellable
+    gems — but the per-gem value comes from the hypergeometric estimator so
+    the cash-vs-gems ratios fed into the discount model are computed against
+    the same value scale the bidder is actually using.
+    """
+    avg_per_gem = _hyper_avg_treasure_value(state, my_state)
+    sellable_gems = len(state.revealed_gems) + len(state.gem_deck)
+    return avg_per_gem * sellable_gems
+
+
+def _hyper_compute_discount_features(
+    state: "GameState", my_state: "PlayerState"
+) -> _DiscountFeatures:
+    """Hyper-aware version of ``_compute_discount_features``.
+
+    Identical structure to the original; the only difference is the EV
+    denominator, which uses ``_hyper_ev_remaining_auctions``. Variance proxy
+    is unchanged for now (a true Var[chart_value] from the distribution
+    would be a separate refinement and is out of scope for this step).
+    """
+    auctions_left = len(state.auction_deck)
+    progress = max(0.0, min(1.0, 1.0 - auctions_left / _TOTAL_AUCTIONS))
+
+    ev_remaining = max(1.0, _hyper_ev_remaining_auctions(state, my_state))
+
+    opp_coins = [ps.coins for ps in state.player_states if ps is not my_state]
+    avg_opp = (sum(opp_coins) / len(opp_coins)) if opp_coins else 0.0
+    top_opp = max(opp_coins) if opp_coins else 0.0
+
+    my_cash_ratio = my_state.coins / ev_remaining
+    avg_cash_ratio = avg_opp / ev_remaining
+    top_cash_ratio = top_opp / ev_remaining
+
+    hidden = sum(len(ps.hand) for ps in state.player_states if ps is not my_state)
+    hidden += len(state.gem_deck)
+    chart_table = VALUE_CHARTS[state.value_chart]
+    chart_swing = (max(chart_table) - min(chart_table)) / 20.0
+    variance = (hidden / 30.0) * chart_swing
+
+    return _DiscountFeatures(
+        progress=progress,
+        my_cash_ratio=my_cash_ratio,
+        avg_cash_ratio=avg_cash_ratio,
+        top_cash_ratio=top_cash_ratio,
+        variance=variance,
+    )
+
+
+class HyperAdaptiveAI(AdaptiveHeuristicAI):
+    """AdaptiveHeuristicAI fed by the hypergeometric value estimator.
+
+    Inherits the linear-model discount weights, loan thresholds, and reveal
+    logic from ``AdaptiveHeuristicAI``; replaces the value-estimation
+    plumbing (treasure value, average per-gem value, EV remaining) with the
+    ``_hyper_*`` versions so the bidder reasons about the same numbers the
+    HypergeometricAI's tests verified.
+
+    The two effects this combines:
+
+    1. ``_hyper_treasure_value`` — better per-gem coin estimate, especially
+       on non-monotonic charts where ``E[chart(X)] ≠ chart(E[X])``.
+    2. ``AdaptiveHeuristicAI.discount_rate`` — state-dependent bid sizing
+       instead of a fixed 0.75 fraction.
+    """
+
+    def _reserve_for_future(self, public_state: "GameState") -> int:
+        """Hyper-aware reserve. Same shape as HeuristicAI's, hyper avg."""
+        gems_left = _remaining_supply(public_state)
+        future_treasures = max(0, gems_left // 2)
+        avg_value = _hyper_avg_treasure_value(
+            public_state, public_state.player_states[0]
+        )
+        return int(future_treasures * avg_value * 0.2)
+
+    def choose_bid(
+        self,
+        public_state: "GameState",
+        my_state: "PlayerState",
+        auction: AuctionCard,
+    ) -> int:
+        cap = max_legal_bid(my_state, auction)
+        if cap == 0:
+            return 0
+
+        features = _hyper_compute_discount_features(public_state, my_state)
+        discount = self.discount_rate(features)
+
+        reserve = self._reserve_for_future(public_state)
+        spendable = max(0, my_state.coins - reserve)
+
+        if isinstance(auction, TreasureCard):
+            value = _hyper_treasure_value(auction, public_state, my_state)
+            target = int(value * discount)
+            bid = min(target, spendable, cap)
+            return max(0, bid)
+
+        if isinstance(auction, InvestCard):
+            bid = min(int(spendable * discount), cap)
+            if bid == 0 and cap > 0:
+                bid = 1
+            return bid
+
+        if isinstance(auction, LoanCard):
+            if features.my_cash_ratio >= self.LOAN_CASH_RATIO_MAX:
+                return 0
+            if discount < self.LOAN_DISCOUNT_MIN:
+                return 0
+            return min(int(auction.amount * discount), cap)
+
+        return 0

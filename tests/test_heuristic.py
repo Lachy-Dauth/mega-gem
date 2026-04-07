@@ -8,11 +8,14 @@ from megagem.missions import MissionCard, color_counts_at_least
 from megagem.players import (
     AdaptiveHeuristicAI,
     HeuristicAI,
+    HyperAdaptiveAI,
     HypergeometricAI,
     RandomAI,
     _compute_discount_features,
     _ev_remaining_auctions,
     _expected_final_display,
+    _hyper_compute_discount_features,
+    _hyper_ev_remaining_auctions,
     _hyper_expected_per_gem_value,
     _hyper_hidden_distribution,
     _hyper_treasure_gem_value,
@@ -516,6 +519,158 @@ class HyperHeadToHeadTest(unittest.TestCase):
             win_rate,
             0.6,
             f"Hypergeometric only won {win_rate:.0%} on chart E",
+        )
+
+
+# ----------------------------------------------------------------------------
+# HyperAdaptiveAI tests
+# ----------------------------------------------------------------------------
+
+
+class HyperAdaptiveBidTest(unittest.TestCase):
+    def test_treasure_bid_matches_hyper_helpers(self):
+        # Strong wiring check: on a chart-E state where the point and hyper
+        # estimators disagree, HyperAdaptive's choose_bid must equal the bid
+        # we'd compute manually from _hyper_treasure_value and the hyper
+        # discount features. This is the only test that pins the integration.
+        ai = HyperAdaptiveAI("HA", seed=0)
+        state = _empty_state(chart="E")
+        me = state.player_states[0]
+        opp = state.player_states[1]
+        me.coins = 50
+        opp.hand = [GemCard(Color.GREEN)] * 6
+        state.gem_deck = [GemCard(Color.GREEN)] * 6
+        state.revealed_gems = [GemCard(Color.BLUE)]
+        state.auction_deck = [TreasureCard(1)] * 10
+
+        bid = ai.choose_bid(state, me, TreasureCard(1))
+
+        # Reproduce the exact arithmetic the class is supposed to do.
+        value = _hyper_treasure_value(TreasureCard(1), state, me)
+        feats = _hyper_compute_discount_features(state, me)
+        discount = ai.discount_rate(feats)
+        reserve = ai._reserve_for_future(state)
+        spendable = max(0, me.coins - reserve)
+        cap = me.coins  # treasure cap = coins
+        expected = max(0, min(int(value * discount), spendable, cap))
+        self.assertEqual(bid, expected)
+
+    def test_chart_e_bid_differs_from_adaptive(self):
+        # Looser smoke test: on the same chart-E state, HyperAdaptive and
+        # AdaptiveHeuristicAI should not produce identical bids — that
+        # would mean the hyper helpers had no effect.
+        ai_hyper = HyperAdaptiveAI("HA", seed=0)
+        ai_adapt = AdaptiveHeuristicAI("A", seed=0)
+        state = _empty_state(chart="E")
+        me = state.player_states[0]
+        opp = state.player_states[1]
+        me.coins = 50
+        opp.hand = [GemCard(Color.GREEN)] * 6
+        state.gem_deck = [GemCard(Color.GREEN)] * 6
+        state.revealed_gems = [GemCard(Color.BLUE)]
+        state.auction_deck = [TreasureCard(1)] * 10
+        bid_hyper = ai_hyper.choose_bid(state, me, TreasureCard(1))
+        bid_adapt = ai_adapt.choose_bid(state, me, TreasureCard(1))
+        self.assertNotEqual(bid_hyper, bid_adapt)
+
+    def test_loan_skipped_when_cash_healthy(self):
+        ai = HyperAdaptiveAI("HA", seed=0)
+        state = _empty_state()
+        me = state.player_states[0]
+        me.coins = 9999  # huge cash ratio → loan policy declines
+        state.gem_deck = [GemCard(Color.BLUE)] * 5
+        state.auction_deck = [TreasureCard(1)] * 10
+        self.assertEqual(ai.choose_bid(state, me, LoanCard(20)), 0)
+
+    def test_invest_always_takes_token_bid(self):
+        ai = HyperAdaptiveAI("HA", seed=0)
+        state = _empty_state()
+        me = state.player_states[0]
+        me.coins = 1
+        state.gem_deck = [GemCard(Color.BLUE)] * 5
+        state.auction_deck = [TreasureCard(1)] * 10
+        self.assertGreaterEqual(ai.choose_bid(state, me, InvestCard(10)), 1)
+
+    def test_treasure_bid_within_cap(self):
+        ai = HyperAdaptiveAI("HA", seed=0)
+        state = _empty_state(chart="A")
+        me = state.player_states[0]
+        me.coins = 5
+        state.revealed_gems = [GemCard(Color.BLUE), GemCard(Color.PINK)]
+        state.gem_deck = [GemCard(Color.GREEN)] * 4
+        state.auction_deck = [TreasureCard(1)] * 10
+        bid = ai.choose_bid(state, me, TreasureCard(1))
+        self.assertGreaterEqual(bid, 0)
+        self.assertLessEqual(bid, 5)
+
+
+class HyperDiscountFeaturesTest(unittest.TestCase):
+    def test_ev_remaining_uses_hyper_avg(self):
+        # Same game state — the only difference between point-estimate EV
+        # and hyper EV is which avg-per-gem helper is used. On chart E with
+        # a wide hidden pool the two should disagree.
+        state = _empty_state(chart="E")
+        me = state.player_states[0]
+        opp = state.player_states[1]
+        opp.hand = [GemCard(Color.GREEN)] * 6
+        state.gem_deck = [GemCard(Color.GREEN)] * 6
+        state.auction_deck = [TreasureCard(1)] * 10
+
+        ev_point = _ev_remaining_auctions(state, me)
+        ev_hyper = _hyper_ev_remaining_auctions(state, me)
+        self.assertNotAlmostEqual(ev_point, ev_hyper, places=3)
+        self.assertGreater(ev_point, ev_hyper)  # point overestimates on E
+
+    def test_features_match_shape_of_point_version(self):
+        # Hyper feature set should produce a fully populated DiscountFeatures
+        # with the same five fields. We don't pin numerical values here —
+        # just shape — because the EV denominator differs by construction.
+        state = _empty_state(chart="A")
+        me = state.player_states[0]
+        state.auction_deck = [TreasureCard(1)] * 20
+        state.gem_deck = [GemCard(Color.BLUE)] * 5
+        feats = _hyper_compute_discount_features(state, me)
+        for attr in (
+            "progress",
+            "my_cash_ratio",
+            "avg_cash_ratio",
+            "top_cash_ratio",
+            "variance",
+        ):
+            self.assertTrue(hasattr(feats, attr))
+
+
+class HyperAdaptiveHeadToHeadTest(unittest.TestCase):
+    """HyperAdaptiveAI should clear the same head-to-head bar on every chart."""
+
+    def _run(self, chart: str, games: int = 60) -> float:
+        wins = 0
+        for seed in range(games):
+            players = [
+                HyperAdaptiveAI("HA", seed=seed * 19),
+                RandomAI("R1", seed=seed * 19 + 1),
+                RandomAI("R2", seed=seed * 19 + 2),
+                RandomAI("R3", seed=seed * 19 + 3),
+            ]
+            state = setup_game(players, chart=chart, seed=seed)
+            rng = random.Random(seed)
+            while not is_game_over(state):
+                play_round(state, rng=rng)
+            scores = score_game(state)
+            if scores[0]["total"] > max(s["total"] for s in scores[1:]):
+                wins += 1
+        return wins / games
+
+    def test_beats_random_chart_a(self):
+        win_rate = self._run("A")
+        self.assertGreater(
+            win_rate, 0.6, f"HyperAdaptive only won {win_rate:.0%} on chart A"
+        )
+
+    def test_beats_random_chart_e(self):
+        win_rate = self._run("E")
+        self.assertGreater(
+            win_rate, 0.6, f"HyperAdaptive only won {win_rate:.0%} on chart E"
         )
 
 
