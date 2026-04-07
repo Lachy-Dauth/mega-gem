@@ -116,8 +116,10 @@ python -m megagem --all-ai --ai random --quiet
 # Watch four heuristic AIs play out a full game with full board logs.
 python -m megagem --all-ai --ai heuristic --chart D --seed 1
 
-# Cheat mode: render opponents' hands so you can see what's hidden.
-python -m megagem --debug
+# Play against the GA-evolved AI with debug mode: opponent hands AND
+# AI rationale (features, per-head discounts, value estimates) printed
+# after every round.
+python -m megagem --ai evolved --debug
 ```
 
 ### All flags
@@ -127,14 +129,10 @@ python -m megagem --debug
 | `--players {3,4,5}` | `4` | Total seats. One is human unless `--all-ai`. |
 | `--chart {A,B,C,D,E}` | `A` | Which value chart to score against. |
 | `--seed N` | random | Reproducibility — same seed → same deck order. |
-| `--ai {random,heuristic,adaptive}` | `heuristic` | Opponent AI class. |
+| `--ai {random,heuristic,adaptive,hyper,hyper_adapt,evolved}` | `heuristic` | Opponent AI class. `evolved` loads GA-tuned weights from `artifacts/best_weights_{N}p.json`. |
 | `--all-ai` | off | Replace the human seat with another AI. |
-| `--debug` | off | Reveal every player's hand during rendering. |
+| `--debug` | off | Reveal every player's hand AND print each AI's rationale (features, discount per head, reserve, value estimate) after every round. |
 | `--quiet` | off | Suppress per-round logs (fast headless runs). |
-
-> **Note:** the CLI's `--ai` flag only exposes the three "vanilla" AIs.
-> The hyper / split / evolved AIs are accessed via `megagem.players` from
-> Python — see [the AI zoo](#the-ai-zoo) below.
 
 ### How a turn is rendered
 
