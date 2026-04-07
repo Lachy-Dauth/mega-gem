@@ -16,13 +16,14 @@ them, how to evolve a stronger one, and how to read the benchmark plots.
 1. [Quick start](#quick-start)
 2. [Repo layout](#repo-layout)
 3. [Playing in the terminal](#playing-in-the-terminal)
-4. [The game engine](#the-game-engine)
-5. [The AI zoo](#the-ai-zoo)
-6. [Testing](#testing)
-7. [Evolving a better AI (the GA)](#evolving-a-better-ai-the-ga)
-8. [Benchmarking: pairwise heatmap](#benchmarking-pairwise-heatmap)
-9. [Adding your own AI](#adding-your-own-ai)
-10. [Common gotchas](#common-gotchas)
+4. [Playing in the browser](#playing-in-the-browser)
+5. [The game engine](#the-game-engine)
+6. [The AI zoo](#the-ai-zoo)
+7. [Testing](#testing)
+8. [Evolving a better AI (the GA)](#evolving-a-better-ai-the-ga)
+9. [Benchmarking: pairwise heatmap](#benchmarking-pairwise-heatmap)
+10. [Adding your own AI](#adding-your-own-ai)
+11. [Common gotchas](#common-gotchas)
 
 ---
 
@@ -37,20 +38,21 @@ cd mega-gem
 python -m venv .venv
 source .venv/bin/activate          # or .venv\Scripts\activate on Windows
 
-# 3. Install dependencies
-#    Django is the only hard dependency; matplotlib is needed for the
-#    GA + heatmap scripts in scripts/.
-pip install -r requirements.txt
+# 3. The Python game + tests need no third-party deps.
+#    matplotlib is only required for the GA + heatmap scripts in scripts/.
 pip install matplotlib              # only if you want plots
 
 # 4. Run the test suite (should print "Ran 73 tests ... OK")
 python -m unittest discover
 
-# 5. Play a game against three Heuristic AIs
+# 5. Play a game against three Heuristic AIs in the terminal
 python -m megagem
 
 # 6. Watch four AIs play each other end-to-end on chart E
 python -m megagem --all-ai --ai adaptive --chart E --seed 42
+
+# 7. Or play in your browser — no server, no build step:
+open play/index.html       # macOS; on Linux use `xdg-open`, Windows `start`
 ```
 
 If everything above worked you have a clean install.
@@ -62,7 +64,7 @@ If everything above worked you have a clean install.
 ```
 mega-gem/
 ├── megagem/                 # Game engine + AIs (the bit you import)
-│   ├── __main__.py          # CLI entry point: `python -m megagem`
+│   ├── __main__.py          # Terminal CLI entry point: `python -m megagem`
 │   ├── cards.py             # Gem / Auction / Treasure / Loan / Invest cards
 │   ├── engine.py            # setup_game, play_round, score_game
 │   ├── missions.py          # Mission deck (shields / pendants / crowns)
@@ -70,6 +72,11 @@ mega-gem/
 │   ├── render.py            # Pretty-printing for the CLI
 │   ├── state.py             # GameState / PlayerState dataclasses
 │   └── value_charts.py      # The five value charts A–E
+├── play/                    # Browser frontend — open index.html, no server
+│   ├── index.html           # Menu + game screens
+│   ├── style.css            # Dark theme, color-coded gems
+│   ├── megagem.js           # JS port of the engine + RandomAI + HeuristicAI
+│   └── ui.js                # UI controller / state machine
 ├── scripts/                 # Standalone runnables (NOT imported by megagem/)
 │   ├── evolve_hyper_adaptive.py   # GA tuner for HyperAdaptiveSplitAI
 │   └── heatmap_pairwise.py        # All-vs-all win-rate matrix plot
@@ -79,20 +86,14 @@ mega-gem/
 │   ├── test_heuristic.py    # Big file — covers every AI's helper math
 │   ├── test_missions.py
 │   └── test_scoring.py
-├── megagem_web/             # Django scaffolding (not yet wired up)
-├── games/                   # Reserved for the web app's saved games
-├── artifacts/               # GA plots + best_weights.json (gitignored)
+├── artifacts/               # GA plots + best_weights*.json (gitignored)
 ├── README.md
-├── RULES.md                 # The actual game rules — read this first
-├── requirements.txt
-├── Dockerfile               # For the eventual web app
-├── docker-compose.yml
-└── manage.py                # Django management entry point
+└── RULES.md                 # The actual game rules — read this first
 ```
 
-The CLI / engine / AIs have **zero** dependency on Django or matplotlib.
-You can run, test, and evolve AIs with just stdlib Python plus matplotlib
-for the plots.
+The Python CLI, engine, and tests have **zero** third-party dependencies
+— stdlib only. matplotlib is needed only for the GA + heatmap scripts in
+`scripts/`. The browser frontend in `play/` has no dependencies at all.
 
 ---
 
@@ -148,6 +149,74 @@ python -m megagem --debug
 At the end of the game, `render.render_scores` prints a per-player
 breakdown: cash, gem value (chart-dependent!), mission bonuses, loan
 deductions, and grand totals.
+
+---
+
+## Playing in the browser
+
+The `play/` directory is a fully self-contained vanilla-JS frontend —
+no build step, no bundler, no server, no Pyodide. The Python engine is
+ported faithfully to JavaScript inside `play/megagem.js` (same 30-card
+gem deck, 25-card auction deck, 30 missions, identical bid resolution
+including the "closest player to the left of the previous winner"
+tie-break).
+
+### Run it
+
+```bash
+# Just open the file in any modern browser:
+open play/index.html               # macOS
+xdg-open play/index.html           # Linux
+start play/index.html              # Windows
+# Or double-click it in your file manager.
+```
+
+You can also serve it with any static server (e.g.
+`python -m http.server` from inside `play/`) if you'd rather hit it
+over HTTP.
+
+### Menu options
+
+| Option | Choices | Notes |
+|--------|---------|-------|
+| Your name | free text | Shown on opponents' boards and the score table. |
+| Players | 3 / 4 / 5 | You + 2/3/4 AI opponents. Starting coins/hand size scale per the rules. |
+| AI difficulty | Random / Heuristic | "Random" is the floor; "Heuristic" is a faithful port of the Python `HeuristicAI`. |
+| Value chart | A–E | Same five charts the Python engine uses. Chart E is the trickiest. |
+| Random seed | optional | Leave blank for a random game; set a number to make the deck order reproducible. |
+
+### What the game screen shows
+
+* **Top panel** — round counter, current chart, deck sizes, the auction
+  card on offer, the gems available if it's a treasure, the public
+  Value Display (with current per-gem prices), and the active missions.
+* **Middle panel** — opponent cards: name, coin count, hand size,
+  collection size, completed-mission count, and a tally of every gem
+  they own (collections are public information). The previous round's
+  winner is highlighted in gold.
+* **Bottom panel** — your name and coins, your hand (clickable during
+  the reveal phase), your collection, your completed missions, and the
+  bid input.
+* **Right panel** — a running log of every round (auction, all bids,
+  winner, what they took, missions completed) and the **Continue**
+  button between rounds.
+
+### How a turn flows in the UI
+
+1. A new auction card is drawn — the bid input unlocks.
+2. Type a bid (or hit **Pass**) and press **Submit**. AI bids are
+   computed instantly and the winner is shown in the log.
+3. If you won and have at least one card in hand, your hand becomes
+   clickable — click the gem you'd like to reveal into the Value
+   Display. (AI winners pick automatically.)
+4. Missions auto-complete; the gem deck refills the revealed display.
+5. Click **Continue** to draw the next auction card.
+6. When the auction or gem deck runs out, the score screen appears
+   with everyone's per-category breakdown and a **Play again** button.
+
+> The browser AI is the JS port of `HeuristicAI`. The hypergeometric
+> and GA-evolved AIs are Python-only — if you want to play against
+> *those*, the terminal CLI is currently the only path.
 
 ---
 

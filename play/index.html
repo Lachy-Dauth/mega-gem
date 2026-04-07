@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MegaGem</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="topbar">
+        <h1>MegaGem</h1>
+        <div class="topbar-actions">
+            <a href="rules.html" class="ghost" target="_blank" rel="noopener">Rules</a>
+            <button id="back-to-menu" class="ghost" hidden>Back to menu</button>
+        </div>
+    </header>
+
+    <!-- ============================== MENU ============================== -->
+    <section id="menu-screen" class="screen">
+        <div class="menu-card">
+            <h2>New game</h2>
+
+            <label class="field">
+                <span>Your name</span>
+                <input id="menu-name" type="text" value="You" maxlength="14">
+            </label>
+
+            <label class="field">
+                <span>Players (you + opponents)</span>
+                <select id="menu-players">
+                    <option value="3">3 players</option>
+                    <option value="4" selected>4 players</option>
+                    <option value="5">5 players</option>
+                </select>
+            </label>
+
+            <label class="field">
+                <span>AI difficulty</span>
+                <select id="menu-ai">
+                    <option value="random">Random (very easy)</option>
+                    <option value="heuristic">Heuristic with noise (medium)</option>
+                    <option value="evolved" selected>Evolved (hardest)</option>
+                </select>
+            </label>
+
+            <label class="field">
+                <span>Value chart</span>
+                <select id="menu-chart">
+                    <option value="A" selected>Chart A — linear (0,4,8,12,16,20)</option>
+                    <option value="B">Chart B — reverse linear (20,16,12,8,4,0)</option>
+                    <option value="C">Chart C — slow start (0,2,5,9,14,20)</option>
+                    <option value="D">Chart D — penalised at the end (20,18,15,11,6,0)</option>
+                    <option value="E">Chart E — peaks at 3 (0,4,10,18,6,0)</option>
+                </select>
+            </label>
+
+            <label class="field">
+                <span>Random seed (optional)</span>
+                <input id="menu-seed" type="number" placeholder="leave blank for random">
+            </label>
+
+            <button id="menu-start" class="primary">Start game</button>
+
+            <details class="rules-summary">
+                <summary>How to play</summary>
+                <p>Each round one auction card is revealed. Everyone bids in secret;
+                the highest bid wins. Treasures give you gems for your collection.
+                Loans give you cash now but cost you at scoring. Invests are free
+                money. The winner reveals one gem from their hand into the public
+                Value Display, which sets how much each color of gem is worth at
+                end-of-game (per the chosen chart). Missions auto-complete when
+                your collection covers them.</p>
+            </details>
+        </div>
+    </section>
+
+    <!-- ============================== GAME ============================== -->
+    <section id="game-screen" class="screen" hidden>
+        <div class="game-grid">
+
+            <!-- Top: round info, auction card, value display, missions -->
+            <div class="panel public-panel">
+                <div class="round-line">
+                    <span class="round-label">Round <span id="round-number">0</span></span>
+                    <span class="chart-label">Chart <span id="chart-letter">A</span></span>
+                    <span class="deck-line">Auction deck: <span id="auction-deck-count">0</span></span>
+                    <span class="deck-line">Gem deck: <span id="gem-deck-count">0</span></span>
+                </div>
+
+                <div class="auction-row">
+                    <div class="auction-card-wrap">
+                        <h3>Up for auction</h3>
+                        <div id="auction-card" class="auction-card placeholder">—</div>
+                    </div>
+                    <div class="revealed-gems-wrap">
+                        <h3>Treasure gems on offer</h3>
+                        <div id="revealed-gems" class="gem-row"></div>
+                    </div>
+                </div>
+
+                <div class="display-missions-row">
+                    <div class="value-display-wrap">
+                        <h3>Value Display (chart-driven prices)</h3>
+                        <div id="value-display" class="value-display"></div>
+                    </div>
+                    <div class="missions-wrap">
+                        <h3>Active Missions</h3>
+                        <ul id="active-missions" class="missions-list"></ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Middle: opponents -->
+            <div class="panel opponents-panel">
+                <h3>Opponents</h3>
+                <div id="opponents" class="opponents-row"></div>
+            </div>
+
+            <!-- Bottom: you (hand + collection + bid input) -->
+            <div class="panel you-panel">
+                <h3>
+                    <span id="you-name">You</span>
+                    <span class="coin-pill">💰 <span id="you-coins">0</span></span>
+                </h3>
+
+                <div class="you-grid">
+                    <div>
+                        <h4>Your hand <span class="muted">(revealed gems go to the value display)</span></h4>
+                        <div id="your-hand" class="gem-row clickable"></div>
+                    </div>
+                    <div>
+                        <h4>Your collection <span class="muted">(scored at end of game)</span></h4>
+                        <div id="your-collection" class="gem-tally"></div>
+                    </div>
+                    <div>
+                        <h4>Your missions completed</h4>
+                        <ul id="your-missions" class="missions-list small"></ul>
+                    </div>
+                </div>
+
+                <div class="bid-area">
+                    <div id="bid-prompt" class="bid-prompt">Waiting…</div>
+                    <div id="bid-controls" class="bid-controls">
+                        <input id="bid-input" type="number" min="0" value="0">
+                        <button id="bid-submit" class="primary">Submit bid</button>
+                        <button id="bid-zero" class="ghost">Pass (bid 0)</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Log + advance button -->
+            <div class="panel log-panel">
+                <h3>Round log</h3>
+                <ol id="game-log" class="log"></ol>
+                <button id="advance-button" class="primary" hidden>Continue ▶</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- ============================== SCORES ============================ -->
+    <section id="scores-screen" class="screen" hidden>
+        <div class="menu-card wide">
+            <h2>Game over</h2>
+            <table id="scores-table" class="scores-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Player</th>
+                        <th>Cash</th>
+                        <th>Gems</th>
+                        <th>Missions</th>
+                        <th>Loans</th>
+                        <th>Invests</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <div class="score-actions">
+                <button id="play-again" class="primary">Play again</button>
+            </div>
+        </div>
+    </section>
+
+    <script src="megagem.js"></script>
+    <script src="ui.js"></script>
+</body>
+</html>

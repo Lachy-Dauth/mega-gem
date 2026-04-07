@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -146,6 +147,30 @@ def _cache_key(weights: list[float]) -> tuple[float, ...]:
     return tuple(round(w, 4) for w in weights)
 
 
+def _render_progress(
+    gen: int,
+    generations: int,
+    best: float,
+    mean: float,
+    elapsed_total: float,
+    bar_width: int = 30,
+) -> None:
+    """In-place progress bar. Uses \\r so successive calls overwrite."""
+    done = gen + 1
+    frac = done / generations
+    filled = int(round(frac * bar_width))
+    bar = "#" * filled + "-" * (bar_width - filled)
+    avg = elapsed_total / done
+    eta = avg * (generations - done)
+    line = (
+        f"\r[{bar}] gen {done:3d}/{generations} "
+        f"best={best:.3f} mean={mean:.3f} "
+        f"elapsed={elapsed_total:5.1f}s eta={eta:5.1f}s"
+    )
+    sys.stdout.write(line)
+    sys.stdout.flush()
+
+
 def run_ga(
     *,
     population_size: int,
@@ -173,9 +198,9 @@ def run_ga(
         population.append(random_individual(rng))
 
     result = GAResult()
+    ga_start = time.perf_counter()
 
     for gen in range(generations):
-        t0 = time.perf_counter()
         scores = [evaluate(ind) for ind in population]
 
         best_idx = max(range(len(population)), key=lambda i: scores[i])
@@ -189,10 +214,12 @@ def run_ga(
             result.best_weights = list(population[best_idx])
             result.best_generation = gen
 
-        elapsed = time.perf_counter() - t0
-        print(
-            f"gen {gen:3d}: best={best_score:.3f} mean={mean_score:.3f} "
-            f"cache={len(cache)} elapsed={elapsed:.1f}s"
+        _render_progress(
+            gen,
+            generations,
+            best_score,
+            mean_score,
+            time.perf_counter() - ga_start,
         )
 
         if gen == generations - 1:
@@ -211,6 +238,8 @@ def run_ga(
 
         population = next_pop
 
+    sys.stdout.write("\n")
+    sys.stdout.flush()
     return result
 
 
