@@ -8,12 +8,13 @@ import sys
 
 from . import render
 from .engine import is_game_over, play_round, score_game, setup_game
-from .players import HeuristicAI, HumanPlayer, Player, RandomAI
+from .players import AdaptiveHeuristicAI, HeuristicAI, HumanPlayer, Player, RandomAI
 
 
 AI_TYPES = {
     "random": RandomAI,
     "heuristic": HeuristicAI,
+    "adaptive": AdaptiveHeuristicAI,
 }
 
 

@@ -4,12 +4,22 @@ from collections import Counter
 
 from megagem.cards import Color, GemCard, InvestCard, LoanCard, TreasureCard
 from megagem.engine import is_game_over, play_round, score_game, setup_game
+from megagem.missions import MissionCard, color_counts_at_least
 from megagem.players import (
+    AdaptiveHeuristicAI,
     HeuristicAI,
+    HypergeometricAI,
     RandomAI,
+    _compute_discount_features,
+    _ev_remaining_auctions,
     _expected_final_display,
+    _hyper_expected_per_gem_value,
+    _hyper_hidden_distribution,
+    _hyper_treasure_gem_value,
+    _hyper_treasure_value,
     _treasure_value,
 )
+from megagem.value_charts import value_for
 from megagem.state import GameState, PlayerState
 
 
@@ -162,6 +172,167 @@ class HeadToHeadTest(unittest.TestCase):
             win_rate,
             0.6,
             f"Heuristic only won {wins}/{games} ({win_rate:.0%}); ties={ties}",
+        )
+
+
+# ----------------------------------------------------------------------------
+# AdaptiveHeuristicAI tests
+# ----------------------------------------------------------------------------
+
+
+class AdaptiveFeaturesTest(unittest.TestCase):
+    def test_progress_uses_auction_deck_size(self):
+        state = _empty_state()
+        me = state.player_states[0]
+        # 25 total auctions; 20 left → progress = 0.2
+        state.auction_deck = [TreasureCard(1)] * 20
+        # Make ev_remaining nonzero so cash ratios are finite.
+        state.gem_deck = [GemCard(Color.BLUE)] * 5
+        feats = _compute_discount_features(state, me)
+        self.assertAlmostEqual(feats.progress, 0.2, places=6)
+
+    def test_cash_ratios_use_ev_denominator(self):
+        state = _empty_state(chart="A")
+        me = state.player_states[0]
+        opp = state.player_states[1]
+        me.coins = 30
+        opp.coins = 10
+        state.auction_deck = [TreasureCard(1)] * 10
+        state.gem_deck = [GemCard(Color.BLUE)] * 6
+        # Seed the display so chart A produces nonzero per-gem values.
+        for color in Color:
+            state.value_display[color] = 2
+        ev = _ev_remaining_auctions(state, me)
+        self.assertGreater(ev, 0)
+        feats = _compute_discount_features(state, me)
+        self.assertAlmostEqual(feats.my_cash_ratio, 30 / ev, places=6)
+        self.assertAlmostEqual(feats.avg_cash_ratio, 10 / ev, places=6)
+        self.assertAlmostEqual(feats.top_cash_ratio, 10 / ev, places=6)
+
+    def test_variance_zero_when_no_hidden_cards(self):
+        state = _empty_state()
+        me = state.player_states[0]
+        # Empty hands and empty deck → no hidden cards.
+        state.gem_deck = []
+        state.auction_deck = [TreasureCard(1)]
+        feats = _compute_discount_features(state, me)
+        self.assertEqual(feats.variance, 0.0)
+
+    def test_variance_scales_with_hidden_count(self):
+        # Same chart, different hidden card counts → variance proportional.
+        state_few = _empty_state(chart="A")
+        state_few.gem_deck = [GemCard(Color.BLUE)] * 5
+        state_few.auction_deck = [TreasureCard(1)]
+        state_many = _empty_state(chart="A")
+        state_many.gem_deck = [GemCard(Color.BLUE)] * 20
+        state_many.auction_deck = [TreasureCard(1)]
+        feats_few = _compute_discount_features(state_few, state_few.player_states[0])
+        feats_many = _compute_discount_features(state_many, state_many.player_states[0])
+        self.assertGreater(feats_many.variance, feats_few.variance)
+        # 4× the hidden cards → 4× the variance proxy.
+        self.assertAlmostEqual(feats_many.variance, feats_few.variance * 4.0, places=6)
+
+
+class AdaptiveDiscountRateTest(unittest.TestCase):
+    def test_discount_clamped_above_zero(self):
+        ai = AdaptiveHeuristicAI("X", seed=0)
+        # Force every penalising feature to a huge value.
+        feats = _compute_discount_features(_empty_state(), _empty_state().player_states[0])
+        feats.progress = 0.0
+        feats.my_cash_ratio = 0.0
+        feats.avg_cash_ratio = 100.0
+        feats.top_cash_ratio = 100.0
+        feats.variance = 100.0
+        self.assertEqual(ai.discount_rate(feats), 0.0)
+
+    def test_discount_clamped_below_one(self):
+        ai = AdaptiveHeuristicAI("X", seed=0)
+        feats = _compute_discount_features(_empty_state(), _empty_state().player_states[0])
+        feats.progress = 100.0
+        feats.my_cash_ratio = 100.0
+        feats.avg_cash_ratio = 0.0
+        feats.top_cash_ratio = 0.0
+        feats.variance = 0.0
+        self.assertEqual(ai.discount_rate(feats), 1.0)
+
+    def test_neutral_features_in_unit_interval(self):
+        ai = AdaptiveHeuristicAI("X", seed=0)
+        feats = _compute_discount_features(_empty_state(), _empty_state().player_states[0])
+        feats.progress = 0.5
+        feats.my_cash_ratio = 0.5
+        feats.avg_cash_ratio = 0.5
+        feats.top_cash_ratio = 0.5
+        feats.variance = 0.3
+        d = ai.discount_rate(feats)
+        self.assertGreater(d, 0.0)
+        self.assertLess(d, 1.0)
+
+
+class AdaptiveBidTest(unittest.TestCase):
+    def test_treasure_bid_within_cap(self):
+        ai = AdaptiveHeuristicAI("X", seed=0)
+        state = _empty_state(chart="A")
+        me = state.player_states[0]
+        me.coins = 5
+        state.revealed_gems = [GemCard(Color.BLUE), GemCard(Color.PINK)]
+        state.gem_deck = [GemCard(Color.GREEN)] * 4
+        state.auction_deck = [TreasureCard(1)] * 10
+        bid = ai.choose_bid(state, me, TreasureCard(1))
+        self.assertGreaterEqual(bid, 0)
+        self.assertLessEqual(bid, 5)
+
+    def test_invest_always_takes_token_bid(self):
+        ai = AdaptiveHeuristicAI("X", seed=0)
+        state = _empty_state()
+        me = state.player_states[0]
+        me.coins = 1  # tiny pile, but invest is free money
+        state.gem_deck = [GemCard(Color.BLUE)] * 5
+        state.auction_deck = [TreasureCard(1)] * 10
+        bid = ai.choose_bid(state, me, InvestCard(10))
+        self.assertGreaterEqual(bid, 1)
+
+    def test_loan_skipped_when_cash_healthy(self):
+        ai = AdaptiveHeuristicAI("X", seed=0)
+        state = _empty_state()
+        me = state.player_states[0]
+        # Make my cash ratio huge so loan policy declines.
+        me.coins = 9999
+        state.gem_deck = [GemCard(Color.BLUE)] * 5
+        state.auction_deck = [TreasureCard(1)] * 10
+        bid = ai.choose_bid(state, me, LoanCard(20))
+        self.assertEqual(bid, 0)
+
+
+class AdaptiveHeadToHeadTest(unittest.TestCase):
+    """AdaptiveHeuristicAI should comfortably beat RandomAI."""
+
+    def test_adaptive_beats_random_majority(self):
+        wins = 0
+        ties = 0
+        games = 60
+        for seed in range(games):
+            players = [
+                AdaptiveHeuristicAI("Adapt", seed=seed * 13),
+                RandomAI("R1", seed=seed * 13 + 1),
+                RandomAI("R2", seed=seed * 13 + 2),
+                RandomAI("R3", seed=seed * 13 + 3),
+            ]
+            state = setup_game(players, chart="A", seed=seed)
+            rng = random.Random(seed)
+            while not is_game_over(state):
+                play_round(state, rng=rng)
+            scores = score_game(state)
+            adapt_score = scores[0]["total"]
+            best_random = max(s["total"] for s in scores[1:])
+            if adapt_score > best_random:
+                wins += 1
+            elif adapt_score == best_random:
+                ties += 1
+        win_rate = wins / games
+        self.assertGreater(
+            win_rate,
+            0.6,
+            f"Adaptive only won {wins}/{games} ({win_rate:.0%}); ties={ties}",
         )
 
 
