@@ -176,11 +176,16 @@ function makeMissionDeck() {
 
 // ---------- Seedable RNG (Mulberry32) -------------------------------------
 
-function makeRng(seed) {
+// `savedState` is the internal Mulberry32 counter `s` returned by a prior
+// rng.getState() call. When provided, the new rng resumes from exactly
+// that point — used by the localStorage save/restore path so a resumed
+// game produces the same downstream bids/shuffles as the original would
+// have. `seed` is still required (kept around for round-tripping).
+function makeRng(seed, savedState) {
     if (seed == null || seed === "" || isNaN(seed)) {
         seed = Math.floor(Math.random() * 0x7fffffff);
     }
-    let s = seed >>> 0;
+    let s = (savedState != null) ? (savedState >>> 0) : (seed >>> 0);
     return {
         seed,
         next() {
@@ -201,6 +206,9 @@ function makeRng(seed) {
             }
             return arr;
         },
+        // Normalised to an unsigned 32-bit value so round-tripping through
+        // JSON / localStorage produces the exact same integer back.
+        getState() { return s >>> 0; },
     };
 }
 
@@ -893,6 +901,7 @@ window.MegaGem = {
     valueFor,
     describeAuction,
     makeRng,
+    makeMissionDeck,
     setupGame,
     isGameOver,
     maxLegalBid,

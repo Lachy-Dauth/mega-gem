@@ -23,7 +23,8 @@ function showScreen(name) {
         if (k === name) el.removeAttribute("hidden");
         else el.setAttribute("hidden", "");
     }
-    $("back-to-menu").hidden = (name === "menu");
+    // Quit button only makes sense while a game is on-screen.
+    $("quit-game").hidden = (name !== "game");
 }
 
 // ---------- Game session state ------------------------------------------
@@ -34,23 +35,209 @@ let session = null;
  *   humanIdx: 0,
  *   pendingBids: number[] | null,
  *   pendingAuction: AuctionCard | null,
+ *   pendingWinnerIdx: number | null,
  *   phase: "bidding" | "revealing" | "summary",
- *   roundLog: string[],
+ *   roundLog: { message, klass }[],   // mirrors the DOM log for replay
  * }
  */
+
+// ---------- Persistence (localStorage) ----------------------------------
+//
+// The whole session is JSON-stringified into localStorage at every render
+// so navigating away (e.g. clicking the Rules link) and coming back —
+// or even reloading the tab — drops you straight back into the game in
+// the same phase. The save survives until the player either finishes the
+// game or hits the Quit button.
+//
+// What's tricky:
+//   * Mission cards carry a `check` function — we save them by name and
+//     rehydrate from a fresh `makeMissionDeck()` lookup table.
+//   * The seedable rng captures its current `s` via `getState()`; the
+//     deserializer feeds it back to `makeRng(seed, s)`.
+//   * Each AI carries its own rng for noise / random bids — we save the
+//     AI kind plus the rng state per player and rebuild on resume.
+
+const SAVE_KEY = "mega-gem:save:v1";
+
+function buildMissionLookup() {
+    const lookup = new Map();
+    for (const m of M.makeMissionDeck()) lookup.set(m.name, m);
+    return lookup;
+}
+
+function aiKindOf(ai) {
+    if (ai instanceof M.HyperAdaptiveSplitAI) return "evolved";
+    if (ai instanceof M.HeuristicAI) return "heuristic";
+    if (ai instanceof M.RandomAI) return "random";
+    return "random";
+}
+
+function serializeAI(ai) {
+    return {
+        kind: aiKindOf(ai),
+        rngSeed: ai.rng.seed,
+        rngState: ai.rng.getState(),
+    };
+}
+
+function buildAI(name, savedAI, evolvedWeights) {
+    const rng = M.makeRng(savedAI.rngSeed, savedAI.rngState);
+    if (savedAI.kind === "random")    return new M.RandomAI(name, rng);
+    if (savedAI.kind === "heuristic") return new M.HeuristicAI(name, rng, { noise: true });
+    return new M.HyperAdaptiveSplitAI(name, rng, evolvedWeights);
+}
+
+function serializePlayer(ps) {
+    return {
+        name: ps.name,
+        isHuman: ps.isHuman,
+        coins: ps.coins,
+        hand: ps.hand.map(g => g.color),
+        collection: { ...ps.collection },
+        completedMissions: ps.completedMissions.map(m => m.name),
+        loans: ps.loans.map(l => ({ kind: "loan", amount: l.amount })),
+        investments: ps.investments.map(inv => ({
+            card: { kind: "invest", amount: inv.card.amount },
+            locked: inv.locked,
+        })),
+        ai: ps.isHuman ? null : serializeAI(ps.ai),
+    };
+}
+
+function serializeSession(sess) {
+    if (!sess) return null;
+    const { state } = sess;
+    return {
+        version: 1,
+        humanIdx: sess.humanIdx,
+        phase: sess.phase,
+        pendingAuction: sess.pendingAuction || null,
+        pendingWinnerIdx: sess.pendingWinnerIdx ?? null,
+        roundLog: sess.roundLog.slice(-150),
+        state: {
+            chart: state.chart,
+            roundNumber: state.roundNumber,
+            lastWinnerIdx: state.lastWinnerIdx,
+            valueDisplay: { ...state.valueDisplay },
+            rngSeed: state.rng.seed,
+            rngState: state.rng.getState(),
+            gemDeck: state.gemDeck.map(g => g.color),
+            revealedGems: state.revealedGems.map(g => g.color),
+            auctionDeck: state.auctionDeck.map(c => ({ ...c })),
+            activeMissions: state.activeMissions.map(m => m.name),
+            playerStates: state.playerStates.map(serializePlayer),
+        },
+    };
+}
+
+function deserializeSession(saved) {
+    if (!saved || saved.version !== 1) return null;
+    const ss = saved.state;
+    if (!ss || !Array.isArray(ss.playerStates)) return null;
+
+    const missionLookup = buildMissionLookup();
+    const numPlayers = ss.playerStates.length;
+    const evolvedWeights = M.evolvedWeightsFor(numPlayers);
+
+    const playerStates = ss.playerStates.map((psSaved) => {
+        let ai;
+        if (psSaved.isHuman) {
+            ai = {
+                name: psSaved.name,
+                isHuman: true,
+                chooseBid: () => 0,
+                chooseGemToReveal: () => null,
+            };
+        } else {
+            ai = buildAI(psSaved.name, psSaved.ai, evolvedWeights);
+        }
+        return {
+            name: psSaved.name,
+            isHuman: !!psSaved.isHuman,
+            ai,
+            hand: psSaved.hand.map((color) => ({ color })),
+            coins: psSaved.coins,
+            collection: { ...psSaved.collection },
+            completedMissions: psSaved.completedMissions
+                .map((n) => missionLookup.get(n))
+                .filter(Boolean),
+            loans: psSaved.loans.map((l) => ({ ...l })),
+            investments: psSaved.investments.map((inv) => ({
+                card: { ...inv.card },
+                locked: inv.locked,
+            })),
+        };
+    });
+
+    const state = {
+        rng: M.makeRng(ss.rngSeed, ss.rngState),
+        chart: ss.chart,
+        playerStates,
+        gemDeck: ss.gemDeck.map((color) => ({ color })),
+        revealedGems: ss.revealedGems.map((color) => ({ color })),
+        auctionDeck: ss.auctionDeck.map((c) => ({ ...c })),
+        activeMissions: ss.activeMissions
+            .map((n) => missionLookup.get(n))
+            .filter(Boolean),
+        valueDisplay: { ...ss.valueDisplay },
+        lastWinnerIdx: ss.lastWinnerIdx,
+        roundNumber: ss.roundNumber,
+    };
+
+    return {
+        state,
+        humanIdx: saved.humanIdx,
+        pendingBids: null,
+        pendingAuction: saved.pendingAuction || null,
+        pendingWinnerIdx: saved.pendingWinnerIdx,
+        phase: saved.phase,
+        roundLog: Array.isArray(saved.roundLog) ? saved.roundLog : [],
+    };
+}
+
+function persistSession() {
+    if (!session) return;
+    try {
+        const data = serializeSession(session);
+        if (data) localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+    } catch (e) {
+        // localStorage may be unavailable (private mode, quota, file://).
+        // Persistence is best-effort — never break play because of it.
+    }
+}
+
+function clearPersistedSession() {
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+}
+
+function loadPersistedSession() {
+    try {
+        const raw = localStorage.getItem(SAVE_KEY);
+        if (!raw) return null;
+        return deserializeSession(JSON.parse(raw));
+    } catch (e) {
+        return null;
+    }
+}
 
 // ---------- Menu --------------------------------------------------------
 
 $("menu-start").addEventListener("click", startGame);
 $("play-again").addEventListener("click", () => showScreen("menu"));
-$("back-to-menu").addEventListener("click", () => {
-    if (confirm("Abandon this game and return to the menu?")) {
+$("quit-game").addEventListener("click", () => {
+    if (confirm("Quit this game and discard your saved progress?")) {
+        clearPersistedSession();
         session = null;
         showScreen("menu");
     }
 });
 
 function startGame() {
+    // Any prior save belongs to the game we're about to discard. Clear
+    // it now so a half-finished game can't sneak back via a reload that
+    // races the first render.
+    clearPersistedSession();
+
     const name = ($("menu-name").value || "You").trim().slice(0, 14) || "You";
     const numPlayers = parseInt($("menu-players").value, 10);
     const aiKind = $("menu-ai").value;
@@ -216,8 +403,10 @@ function resolveAuction(allBids) {
 
     state.lastWinnerIdx = winnerIdx;
     session.pendingWinnerIdx = winnerIdx;
-
-    renderAll();
+    // The auction is over — clear it so a save taken between resolution
+    // and the next phase entry doesn't try to re-render an already-
+    // resolved card with stale gem highlights.
+    session.pendingAuction = null;
 
     // Reveal phase.
     if (winnerState.hand.length === 0) {
@@ -285,6 +474,10 @@ function endGame() {
     const { state } = session;
     const scores = M.scoreGame(state);
     renderScores(scores);
+    // The game is over — drop the save so a reload doesn't try to
+    // resume into an already-finished session.
+    clearPersistedSession();
+    session = null;
     showScreen("scores");
 }
 
@@ -330,6 +523,10 @@ function renderAll() {
     renderActiveMissions(state);
     renderOpponents(state, humanIdx);
     renderYou(me);
+
+    // Snapshot the session at every stable render so the player can
+    // navigate away (Rules link, accidental tab close, …) and come back.
+    persistSession();
 }
 
 function renderAuctionCard(card) {
@@ -596,6 +793,7 @@ function setBidPrompt(text, urgent = false) {
 
 function clearLog() {
     $("game-log").innerHTML = "";
+    if (session) session.roundLog = [];
 }
 
 function log(message, klass = "") {
@@ -604,6 +802,24 @@ function log(message, klass = "") {
     if (klass) li.className = klass;
     li.textContent = message;
     el.appendChild(li);
+    el.scrollTop = el.scrollHeight;
+    // Mirror into the session so a resumed game can replay the log.
+    if (session) {
+        session.roundLog.push({ message, klass });
+        // Hard cap so localStorage stays small even on long sessions.
+        if (session.roundLog.length > 200) session.roundLog.shift();
+    }
+}
+
+function replayLog(entries) {
+    const el = $("game-log");
+    el.innerHTML = "";
+    for (const entry of entries || []) {
+        const li = document.createElement("li");
+        if (entry.klass) li.className = entry.klass;
+        li.textContent = entry.message;
+        el.appendChild(li);
+    }
     el.scrollTop = el.scrollHeight;
 }
 
@@ -617,4 +833,38 @@ function escapeHtml(s) {
 
 // ---------- bootstrap ----------------------------------------------------
 
-showScreen("menu");
+// If a save exists, drop straight back into the same phase the player was
+// in. Otherwise show the menu.
+const restored = loadPersistedSession();
+if (restored) {
+    session = restored;
+    showScreen("game");
+    replayLog(session.roundLog);
+    renderAll();
+    resumeUI();
+} else {
+    showScreen("menu");
+}
+
+function resumeUI() {
+    if (!session) return;
+    if (session.phase === "bidding" && session.pendingAuction) {
+        promptHumanBid();
+    } else if (session.phase === "revealing") {
+        setBidPrompt("You won! Click a gem from your hand to reveal it into the Value Display.", true);
+        $("bid-input").disabled = true;
+        $("bid-submit").disabled = true;
+        $("bid-zero").disabled = true;
+        $("advance-button").hidden = true;
+    } else if (session.phase === "summary") {
+        setBidPrompt("Round complete. Click Continue to draw the next auction.");
+        $("bid-input").disabled = true;
+        $("bid-submit").disabled = true;
+        $("bid-zero").disabled = true;
+        $("advance-button").hidden = false;
+    } else {
+        // Unknown phase — safest is to drop back to menu without losing
+        // the save (player can still quit explicitly).
+        setBidPrompt("Resumed game.");
+    }
+}
