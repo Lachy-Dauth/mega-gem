@@ -336,5 +336,188 @@ class AdaptiveHeadToHeadTest(unittest.TestCase):
         )
 
 
+# ----------------------------------------------------------------------------
+# HypergeometricAI tests
+# ----------------------------------------------------------------------------
+
+
+class HyperHiddenDistributionTest(unittest.TestCase):
+    def test_delta_when_no_hidden_of_color(self):
+        # All 6 BLUE cards are visible somewhere → distribution is a delta
+        # at the known final count regardless of how big the hidden pool is.
+        state = _empty_state(chart="A")
+        me = state.player_states[0]
+        opp = state.player_states[1]
+        state.value_display[Color.BLUE] = 4
+        me.hand = [GemCard(Color.BLUE), GemCard(Color.BLUE)]
+        # Hidden pool exists but cannot contain any BLUE.
+        opp.hand = [GemCard(Color.GREEN)] * 3
+        state.gem_deck = [GemCard(Color.GREEN)] * 5
+        dist = _hyper_hidden_distribution(state, me)
+        self.assertEqual(dist[Color.BLUE], {6: 1.0})
+        # And per-gem value matches the chart exactly (clamped to index 5).
+        per_gem = _hyper_expected_per_gem_value(state, me, "A")
+        self.assertEqual(per_gem[Color.BLUE], float(value_for("A", 6)))
+
+    def test_delta_when_hidden_pool_empty(self):
+        # No opponent hand cards and no deck → no randomness anywhere.
+        state = _empty_state(chart="A")
+        me = state.player_states[0]
+        state.value_display[Color.PINK] = 2
+        me.hand = [GemCard(Color.PINK)]
+        # No opp hand, no deck.
+        dist = _hyper_hidden_distribution(state, me)
+        self.assertEqual(dist[Color.PINK], {3: 1.0})
+
+    def test_hand_built_hypergeometric_matches_exactly(self):
+        # Construct a state with hidden_BLUE = 2, hidden_total = 4,
+        # opp_hand_total = 2 → P(X=k) = C(2,k)*C(2,2-k)/C(4,2).
+        state = _empty_state(chart="A")
+        me = state.player_states[0]
+        opp = state.player_states[1]
+        # Account for 4 BLUE and 4 GREEN in the display.
+        state.value_display[Color.BLUE] = 4
+        state.value_display[Color.GREEN] = 4
+        # Account for the other 3 colors completely (6 of each in my collection).
+        # The function only cares about counts, not where they live.
+        for color in (Color.PINK, Color.PURPLE, Color.YELLOW):
+            me.collection_gems[color] = 6
+        # Hidden pool: 2 in opp hand + 2 in deck = 4 total.
+        opp.hand = [GemCard(Color.BLUE), GemCard(Color.BLUE)]  # contents irrelevant
+        state.gem_deck = [GemCard(Color.BLUE), GemCard(Color.BLUE)]
+
+        dist = _hyper_hidden_distribution(state, me)
+        # known_offset for BLUE = display(4) + my_hand(0) = 4
+        self.assertAlmostEqual(dist[Color.BLUE][4], 1 / 6, places=12)
+        self.assertAlmostEqual(dist[Color.BLUE][5], 4 / 6, places=12)
+        self.assertAlmostEqual(dist[Color.BLUE][6], 1 / 6, places=12)
+        # Probabilities sum to 1.
+        self.assertAlmostEqual(sum(dist[Color.BLUE].values()), 1.0, places=12)
+        # GREEN is symmetric to BLUE.
+        self.assertAlmostEqual(dist[Color.GREEN][5], 4 / 6, places=12)
+
+
+class HyperPerGemValueTest(unittest.TestCase):
+    def test_chart_e_distribution_strictly_below_point_estimate(self):
+        # Setup chosen so E[X_BLUE] = 3 but the distribution is wide.
+        # hidden_BLUE = 6, hidden_total = 12, opp_hand_total = 6
+        # → P(X) symmetric around 3, P(X=3) = 400/924 ≈ 0.433.
+        # chart E = [0, 4, 10, 18, 6, 0]; chart_E[3] = 18 (the peak).
+        # E[chart_E(X)] = 10944/924 ≈ 11.844, strictly less than 18.
+        state = _empty_state(chart="E")
+        me = state.player_states[0]
+        opp = state.player_states[1]
+        opp.hand = [GemCard(Color.GREEN)] * 6  # contents irrelevant
+        state.gem_deck = [GemCard(Color.GREEN)] * 6  # contents irrelevant
+
+        per_gem = _hyper_expected_per_gem_value(state, me, "E")
+        # Sanity: well below the misleading point estimate of 18.
+        self.assertLess(per_gem[Color.BLUE], 18.0)
+        # Exact analytic value, computed by hand above.
+        self.assertAlmostEqual(per_gem[Color.BLUE], 10944 / 924, places=9)
+
+    def test_monotonic_chart_a_matches_distribution_weighted_sum(self):
+        # Sanity check on chart A using the same setup as the test above:
+        # E[chart_A(X)] should equal Σ P(X=k) * chart_A(min(k,5)).
+        state = _empty_state(chart="A")
+        me = state.player_states[0]
+        opp = state.player_states[1]
+        opp.hand = [GemCard(Color.GREEN)] * 6
+        state.gem_deck = [GemCard(Color.GREEN)] * 6
+
+        dist = _hyper_hidden_distribution(state, me)
+        expected_blue = sum(
+            p * value_for("A", min(count, 5))
+            for count, p in dist[Color.BLUE].items()
+        )
+        per_gem = _hyper_expected_per_gem_value(state, me, "A")
+        self.assertAlmostEqual(per_gem[Color.BLUE], expected_blue, places=9)
+
+
+class HyperTreasureValueTest(unittest.TestCase):
+    def test_joint_mission_completion_for_two_gem_treasure(self):
+        # A 2-gem (BLUE, GREEN) treasure should pick up the +5 from a
+        # "1 Blue + 1 Green" pendant only when the bundle is evaluated jointly.
+        state = _empty_state(chart="A")
+        me = state.player_states[0]
+        state.revealed_gems = [GemCard(Color.BLUE), GemCard(Color.GREEN)]
+        pendant = MissionCard(
+            name="Pendant: 1 Blue + 1 Green",
+            coins=5,
+            requirement=color_counts_at_least({Color.BLUE: 1, Color.GREEN: 1}),
+            category="pendant",
+        )
+        state.active_missions = [pendant]
+        with_mission = _hyper_treasure_value(TreasureCard(2), state, me)
+        state.active_missions = []
+        without_mission = _hyper_treasure_value(TreasureCard(2), state, me)
+        self.assertAlmostEqual(with_mission - without_mission, 5.0, places=9)
+
+    def test_two_same_color_treasure_doubles_per_gem_value(self):
+        # Two BLUE gems on offer → gem value should be exactly 2 × per_gem[BLUE]
+        # (the chart depends on the display, not the collection, so the second
+        # gem's expected value is unchanged by the first).
+        state = _empty_state(chart="A")
+        me = state.player_states[0]
+        state.revealed_gems = [GemCard(Color.BLUE), GemCard(Color.BLUE)]
+        # Some hidden pool so the distribution isn't degenerate.
+        state.player_states[1].hand = [GemCard(Color.GREEN)] * 2
+        state.gem_deck = [GemCard(Color.GREEN)] * 4
+
+        per_gem = _hyper_expected_per_gem_value(state, me, "A")
+        gem_v = _hyper_treasure_gem_value(
+            TreasureCard(2), state, me, per_gem=per_gem
+        )
+        self.assertAlmostEqual(gem_v, 2 * per_gem[Color.BLUE], places=9)
+
+    def test_no_revealed_gems_returns_zero(self):
+        state = _empty_state(chart="A")
+        me = state.player_states[0]
+        state.revealed_gems = []
+        self.assertEqual(_hyper_treasure_value(TreasureCard(1), state, me), 0.0)
+
+
+class HyperHeadToHeadTest(unittest.TestCase):
+    """HypergeometricAI should comfortably beat RandomAI, especially on the
+    non-monotonic chart E where the new estimator is most clearly an upgrade
+    over the point-estimate version."""
+
+    def _run_against_random(self, chart: str, games: int = 60) -> float:
+        wins = 0
+        for seed in range(games):
+            players = [
+                HypergeometricAI("Hyper", seed=seed * 17),
+                RandomAI("R1", seed=seed * 17 + 1),
+                RandomAI("R2", seed=seed * 17 + 2),
+                RandomAI("R3", seed=seed * 17 + 3),
+            ]
+            state = setup_game(players, chart=chart, seed=seed)
+            rng = random.Random(seed)
+            while not is_game_over(state):
+                play_round(state, rng=rng)
+            scores = score_game(state)
+            hyper_score = scores[0]["total"]
+            best_random = max(s["total"] for s in scores[1:])
+            if hyper_score > best_random:
+                wins += 1
+        return wins / games
+
+    def test_beats_random_chart_a(self):
+        win_rate = self._run_against_random("A")
+        self.assertGreater(
+            win_rate,
+            0.6,
+            f"Hypergeometric only won {win_rate:.0%} on chart A",
+        )
+
+    def test_beats_random_chart_e(self):
+        win_rate = self._run_against_random("E")
+        self.assertGreater(
+            win_rate,
+            0.6,
+            f"Hypergeometric only won {win_rate:.0%} on chart E",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
