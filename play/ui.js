@@ -448,8 +448,11 @@ function renderOpponents(state, humanIdx) {
                 <span class="stat">💎 <strong>${collTotal}</strong></span>
                 <span class="stat">★ <strong>${missionsDone}</strong></span>
             </div>
+            <div class="finance-chips"></div>
             <div class="opponent-collection"></div>
         `;
+        const finEl = card.querySelector(".finance-chips");
+        renderFinanceChips(finEl, ps);
         const collEl = card.querySelector(".opponent-collection");
         for (const c of M.COLORS) {
             const n = ps.collection[c] || 0;
@@ -457,6 +460,35 @@ function renderOpponents(state, humanIdx) {
         }
         el.appendChild(card);
     });
+}
+
+// Render compact loan/invest chips for an opponent card. Loans show the
+// debt that will be deducted at scoring; investments show the locked bid
+// + the bonus they pay back.
+function renderFinanceChips(el, ps) {
+    el.innerHTML = "";
+    if (ps.loans.length === 0 && ps.investments.length === 0) {
+        const empty = document.createElement("span");
+        empty.className = "chip chip--empty";
+        empty.textContent = "no loans / invests";
+        el.appendChild(empty);
+        return;
+    }
+    for (const loan of ps.loans) {
+        const chip = document.createElement("span");
+        chip.className = "chip chip--loan";
+        chip.title = `Loan: must repay ${loan.amount} coins at scoring`;
+        chip.textContent = `−${loan.amount}`;
+        el.appendChild(chip);
+    }
+    for (const inv of ps.investments) {
+        const chip = document.createElement("span");
+        chip.className = "chip chip--invest";
+        chip.title =
+            `Invest: ${inv.locked} locked, pays back ${inv.locked} + ${inv.card.amount} bonus at scoring`;
+        chip.textContent = `${inv.locked}↻+${inv.card.amount}`;
+        el.appendChild(chip);
+    }
 }
 
 function renderYou(me) {
@@ -504,6 +536,48 @@ function renderYou(me) {
             li.innerHTML = `<span>${escapeHtml(m.name)}</span><span class="coins">${m.coins}</span>`;
             missionsEl.appendChild(li);
         }
+    }
+
+    // Loans + investments — full per-row detail with running scoring impact.
+    const finEl = $("your-finances");
+    finEl.innerHTML = "";
+    if (me.loans.length === 0 && me.investments.length === 0) {
+        finEl.innerHTML = `<li class="muted">(none yet)</li>`;
+    } else {
+        for (const loan of me.loans) {
+            const li = document.createElement("li");
+            li.className = "finance-row finance-row--loan";
+            li.innerHTML = `
+                <span class="fin-icon">💸</span>
+                <span class="fin-label">Loan</span>
+                <span class="fin-detail">+${loan.amount} now / −${loan.amount} at scoring</span>
+            `;
+            finEl.appendChild(li);
+        }
+        for (const inv of me.investments) {
+            const li = document.createElement("li");
+            li.className = "finance-row finance-row--invest";
+            li.innerHTML = `
+                <span class="fin-icon">📈</span>
+                <span class="fin-label">Invest</span>
+                <span class="fin-detail">${inv.locked} locked → +${inv.locked + inv.card.amount} at scoring</span>
+            `;
+            finEl.appendChild(li);
+        }
+        const totalLoans = me.loans.reduce((s, l) => s + l.amount, 0);
+        const totalInvestReturns = me.investments.reduce(
+            (s, i) => s + i.locked + i.card.amount, 0
+        );
+        const net = totalInvestReturns - totalLoans;
+        const sign = net >= 0 ? "+" : "";
+        const li = document.createElement("li");
+        li.className = "finance-row finance-row--total";
+        li.innerHTML = `
+            <span class="fin-icon">Σ</span>
+            <span class="fin-label">Net at scoring</span>
+            <span class="fin-detail ${net >= 0 ? "fin-positive" : "fin-negative"}">${sign}${net}</span>
+        `;
+        finEl.appendChild(li);
     }
 }
 

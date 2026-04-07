@@ -461,6 +461,90 @@ a.ghost:hover {
 }
 .opponent-collection .gem { width: 16px; height: 22px; font-size: 0; }
 
+/* ---------- finance chips (opponents) ---------- */
+.finance-chips {
+    display: flex;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.45rem;
+}
+.chip {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.12rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+    line-height: 1.4;
+}
+.chip--loan {
+    background: rgba(220, 80, 80, 0.15);
+    border-color: rgba(220, 80, 80, 0.55);
+    color: #ff8b8b;
+}
+.chip--invest {
+    background: rgba(80, 180, 120, 0.13);
+    border-color: rgba(80, 180, 120, 0.55);
+    color: #7be0a3;
+}
+.chip--empty {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--muted);
+    font-weight: 500;
+}
+
+/* ---------- finance list (you panel) ---------- */
+.finances-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+.finance-row {
+    display: grid;
+    grid-template-columns: 1.4rem auto 1fr;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.8rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 6px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--border);
+}
+.finance-row .fin-icon {
+    font-size: 0.95rem;
+    text-align: center;
+}
+.finance-row .fin-label {
+    font-weight: 700;
+    color: var(--text);
+}
+.finance-row .fin-detail {
+    color: var(--muted);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.finance-row--loan {
+    border-color: rgba(220, 80, 80, 0.45);
+}
+.finance-row--loan .fin-label { color: #ff8b8b; }
+.finance-row--invest {
+    border-color: rgba(80, 180, 120, 0.45);
+}
+.finance-row--invest .fin-label { color: #7be0a3; }
+.finance-row--total {
+    border-color: var(--accent);
+    background: rgba(255, 255, 255, 0.02);
+}
+.finance-row--total .fin-icon { font-weight: 700; }
+.fin-positive { color: #7be0a3; font-weight: 700; }
+.fin-negative { color: #ff8b8b; font-weight: 700; }
+
 /* ---------- you panel ---------- */
 .you-panel h3 {
     display: flex;
@@ -481,11 +565,14 @@ a.ghost:hover {
 
 .you-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
     gap: 1rem;
     margin-bottom: 1rem;
 }
-@media (max-width: 900px) {
+@media (max-width: 1200px) {
+    .you-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 700px) {
     .you-grid { grid-template-columns: 1fr; }
 }
 
