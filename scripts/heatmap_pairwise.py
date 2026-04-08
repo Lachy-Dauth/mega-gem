@@ -102,6 +102,7 @@ def make_factories() -> dict:
     # script (comparing Evo3's opponent-pricing head vs everything else)
     # is visible even on a fresh checkout.
     evo3 = _try_load(
+        "artifacts/best_weights_evo3_vs_all_4p.json",
         "artifacts/best_weights_evo3_vs_evo2_4p.json",
         "artifacts/best_weights_evo3_self_4p.json",
         "artifacts/best_weights_evo3_4p.json",

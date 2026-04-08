@@ -59,18 +59,22 @@ def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
 
     Lookup order (first match wins):
 
-    1. ``artifacts/best_weights_evo3_vs_evo2_{N}p.json`` — trained
-       against a frozen Evo2 snapshot. Top priority: that is the
-       training regime ``scripts/evolve_evo3.py`` uses by default.
-    2. ``artifacts/best_weights_evo3_self_{N}p.json`` — self-play.
-    3. ``artifacts/best_weights_evo3_{N}p.json`` — legacy un-tagged.
-    4. ``artifacts/best_weights_evo3.json`` — global fallback.
+    1. ``artifacts/best_weights_evo3_vs_all_{N}p.json`` — trained with
+       the fitness averaged across all six previous bots. Top priority:
+       that is the training regime ``scripts/evolve_evo3.py`` uses by
+       default.
+    2. ``artifacts/best_weights_evo3_vs_evo2_{N}p.json`` — trained
+       against a frozen Evo2 snapshot.
+    3. ``artifacts/best_weights_evo3_self_{N}p.json`` — self-play.
+    4. ``artifacts/best_weights_evo3_{N}p.json`` — legacy un-tagged.
+    5. ``artifacts/best_weights_evo3.json`` — global fallback.
 
     If none exist, falls back to ``Evo3AI``'s class defaults with a
     one-time stderr warning so ``--ai evo3`` still works without
     running the GA.
     """
     candidates = [
+        Path(f"artifacts/best_weights_evo3_vs_all_{num_players}p.json"),
         Path(f"artifacts/best_weights_evo3_vs_evo2_{num_players}p.json"),
         Path(f"artifacts/best_weights_evo3_self_{num_players}p.json"),
         Path(f"artifacts/best_weights_evo3_{num_players}p.json"),

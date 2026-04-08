@@ -2,7 +2,8 @@
 
 Run from the project root::
 
-    python -m scripts.evolve_evo3                         # default: vs Evo2
+    python -m scripts.evolve_evo3                         # default: vs all 6 previous bots
+    python -m scripts.evolve_evo3 --opponent vs_evo2      # vs Evo2 only
     python -m scripts.evolve_evo3 --opponent self_play    # self-play
 
 Outputs land in ``artifacts/`` (gitignored):
@@ -10,25 +11,42 @@ Outputs land in ``artifacts/`` (gitignored):
 * ``evolve_evo3_history_{tag}_{N}p.png`` — best/mean fitness curve.
 * ``best_weights_evo3_{tag}_{N}p.json`` — winning genome + GA config.
 
-where ``{tag}`` is ``vs_evo2`` for the default mode and ``self`` for
-self-play. The CLI's ``--ai evo3`` factory checks both.
+where ``{tag}`` is one of:
 
-This script is a near-copy of :mod:`scripts.evolve_evo2` with two
-changes:
+* ``vs_all``   — averaged fitness across all six previous bots (default)
+* ``vs_evo2``  — fitness vs a frozen Evo2 snapshot only
+* ``self``     — self-play within the current population
 
-1. The challenger class is :class:`Evo3AI` (25 weights, layout
-   ``treasure(9), invest(8), loan(8)``).
-2. The default opponent mode is **``vs_evo2``** — opponents are
-   ``num_players − 1`` :class:`Evo2AI` instances loaded from the best
-   available Evo2 weights file. This is the training regime the user
-   asked for: "train against Evo2 in the same manner". The opponent
-   lookup chain mirrors the one in ``megagem.__main__._evo2_factory``
-   so "best Evo2" means whatever ``--ai evo2`` would currently pick.
+The CLI's ``--ai evo3`` factory checks ``vs_all`` first, then ``vs_evo2``,
+then ``self``.
+
+Three opponent modes:
+
+1. **``--opponent vs_all`` (default).** For each individual, run
+   ``games_per_chart`` games on each of the five value charts against
+   ``num_players − 1`` copies of each of six previous bots
+   (:class:`RandomAI`, :class:`HeuristicAI`,
+   :class:`AdaptiveHeuristicAI`, :class:`HypergeometricAI`,
+   :class:`HyperAdaptiveAI`, :class:`Evo2AI`). Fitness is the overall
+   win rate across all six opponent types — equivalently, the average
+   of the six per-opponent win rates since every type gets the same
+   number of games. This takes **6× longer** per generation than the
+   single-opponent modes but produces a challenger that doesn't
+   overfit to any one baseline.
+
+2. **``--opponent vs_evo2``.** Opponents are fixed: ``num_players − 1``
+   :class:`Evo2AI` instances loaded from the best available Evo2
+   weights file (lookup chain mirrors ``--ai evo2``). Fall-back is
+   Evo2's class defaults if no weights file exists.
+
+3. **``--opponent self_play``.** Opponents are sampled each generation
+   from the current Evo3 population.
 
 Like ``evolve_evo2``, fitness uses **rotating seeds** — each generation
 evaluates on a fresh, non-overlapping seed range — so best-fitness per
 generation is not monotone, and the final saved winner comes from a
-held-out re-evaluation of the top-5 elites of the last generation.
+held-out re-evaluation of the top-5 elites of the last generation on
+the same opponent distribution as training.
 """
 
 from __future__ import annotations
@@ -49,7 +67,16 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from megagem.engine import is_game_over, play_round, score_game, setup_game
-from megagem.players import Evo2AI, Evo3AI, Player
+from megagem.players import (
+    AdaptiveHeuristicAI,
+    Evo2AI,
+    Evo3AI,
+    HeuristicAI,
+    HyperAdaptiveAI,
+    HypergeometricAI,
+    Player,
+    RandomAI,
+)
 
 
 # An OpponentProvider builds the opponent slate for one game. It takes the
@@ -134,6 +161,48 @@ def _make_evo2_opponent_provider(
     return provider
 
 
+def _make_vs_all_providers(
+    num_players: int,
+) -> list[tuple[str, OpponentProvider]]:
+    """Build one provider per previous-bot type for the ``vs_all`` mode.
+
+    Returns a list of ``(name, provider)`` pairs, one per opponent
+    class. Each provider fills every opponent seat with ``num_players −
+    1`` copies of the same class — matching the usual "1 challenger vs
+    3× same-class opponents" setup used by the heatmap. Evo2 uses the
+    best weights on disk (falling back to class defaults if none exist);
+    the other five opponents are constructed directly from their class
+    defaults since they have no tuneable weights.
+    """
+    evo2_weights, evo2_path = _load_evo2_weights(num_players)
+    print(f"vs_all: Evo2 opponents loaded from {evo2_path}")
+
+    def _simple_provider(factory):
+        def provider(slot: int, game_seed: int) -> list[Player]:
+            return [
+                factory(f"O{k + 1}", game_seed + k + 1)
+                for k in range(num_players - 1)
+            ]
+        return provider
+
+    def _evo2_provider(slot: int, game_seed: int) -> list[Player]:
+        return [
+            Evo2AI.from_weights(
+                f"E2_{k + 1}", evo2_weights, seed=game_seed + k + 1
+            )
+            for k in range(num_players - 1)
+        ]
+
+    return [
+        ("Random",     _simple_provider(lambda n, s: RandomAI(n, seed=s))),
+        ("Heuristic",  _simple_provider(lambda n, s: HeuristicAI(n, seed=s))),
+        ("Adaptive",   _simple_provider(lambda n, s: AdaptiveHeuristicAI(n, seed=s))),
+        ("Hyper",      _simple_provider(lambda n, s: HypergeometricAI(n, seed=s))),
+        ("HyperAdapt", _simple_provider(lambda n, s: HyperAdaptiveAI(n, seed=s))),
+        ("Evo2",       _evo2_provider),
+    ]
+
+
 def _load_evo2_weights(num_players: int) -> tuple[list[float], Path]:
     """Load existing Evo2 weights for ``num_players`` to train against.
 
@@ -199,6 +268,76 @@ def evaluate_population(
                     wins += 1
         fitness_scores.append(wins / n_games if n_games else 0.0)
     return fitness_scores
+
+
+def evaluate_population_multi(
+    population: list[list[float]],
+    *,
+    providers: list[tuple[str, OpponentProvider]],
+    charts: str,
+    games_per_chart: int,
+    seed_offset: int,
+) -> list[float]:
+    """Score every individual against *all* providers and average.
+
+    Every individual plays ``games_per_chart × len(charts)`` games
+    against each provider; the returned fitness is the overall win rate
+    pooled across all providers. Since every provider contributes the
+    same number of games, this equals the mean of the per-provider win
+    rates. Each provider uses its own disjoint slice of the seed space
+    so a challenger can't get lucky by having the same lucky seed reused
+    for every opponent type.
+    """
+    pop_size = len(population)
+    games_per_provider = len(charts) * games_per_chart
+    total_games = games_per_provider * len(providers)
+
+    fitness_scores: list[float] = []
+    for i in range(pop_size):
+        total_wins = 0
+        for prov_idx, (_name, provider) in enumerate(providers):
+            slot = 0
+            prov_offset = seed_offset + prov_idx * 101
+            for chart_idx, chart in enumerate(charts):
+                for game_idx in range(games_per_chart):
+                    game_seed = prov_offset + chart_idx * 1000 + game_idx
+                    opponents = provider(slot, game_seed)
+                    slot += 1
+                    if _play_one_game(population[i], opponents, chart, game_seed):
+                        total_wins += 1
+        fitness_scores.append(total_wins / total_games if total_games else 0.0)
+    return fitness_scores
+
+
+def evaluate_against_multi(
+    challenger: list[float],
+    *,
+    providers: list[tuple[str, OpponentProvider]],
+    charts: str,
+    games_per_chart: int,
+    seed_offset: int,
+) -> tuple[float, dict[str, float]]:
+    """Multi-provider held-out eval; returns (pooled rate, per-provider rates)."""
+    per_provider: dict[str, float] = {}
+    total_wins = 0
+    total_games = 0
+    for prov_idx, (name, provider) in enumerate(providers):
+        wins = 0
+        slot = 0
+        prov_offset = seed_offset + prov_idx * 101
+        for chart_idx, chart in enumerate(charts):
+            for game_idx in range(games_per_chart):
+                game_seed = prov_offset + chart_idx * 1000 + game_idx
+                opponents = provider(slot, game_seed)
+                slot += 1
+                if _play_one_game(challenger, opponents, chart, game_seed):
+                    wins += 1
+        n = len(charts) * games_per_chart
+        per_provider[name] = wins / n if n else 0.0
+        total_wins += wins
+        total_games += n
+    pooled = total_wins / total_games if total_games else 0.0
+    return pooled, per_provider
 
 
 def evaluate_against_fixed_provider(
@@ -359,9 +498,16 @@ def run_ga(
 
     # --- Opponent mode setup
     evo2_weights: list[float] | None = None
+    vs_all_providers: list[tuple[str, OpponentProvider]] | None = None
     if opponent_mode == "vs_evo2":
         evo2_weights, evo2_path = _load_evo2_weights(num_players)
         print(f"Evo2 opponents loaded from {evo2_path}")
+    elif opponent_mode == "vs_all":
+        vs_all_providers = _make_vs_all_providers(num_players)
+        print(
+            f"vs_all: averaging fitness across {len(vs_all_providers)} "
+            f"opponent types ({', '.join(n for n, _ in vs_all_providers)})"
+        )
 
     result = GAResult()
     ga_start = time.perf_counter()
@@ -376,26 +522,36 @@ def run_ga(
         # are on comparable seed offsets.
         seed_offset = (seed + gen + 1) * 9973
 
-        if opponent_mode == "self_play":
-            provider = _make_self_play_provider(
+        if opponent_mode == "vs_all":
+            assert vs_all_providers is not None
+            scores = evaluate_population_multi(
                 population,
-                num_players=num_players,
-                sample_rng=rng,
-                n_games=n_games_per_eval,
+                providers=vs_all_providers,
+                charts="ABCDE",
+                games_per_chart=games_per_chart,
+                seed_offset=seed_offset,
             )
-        else:  # vs_evo2
-            assert evo2_weights is not None
-            provider = _make_evo2_opponent_provider(
-                evo2_weights, num_players=num_players
-            )
+        else:
+            if opponent_mode == "self_play":
+                provider = _make_self_play_provider(
+                    population,
+                    num_players=num_players,
+                    sample_rng=rng,
+                    n_games=n_games_per_eval,
+                )
+            else:  # vs_evo2
+                assert evo2_weights is not None
+                provider = _make_evo2_opponent_provider(
+                    evo2_weights, num_players=num_players
+                )
 
-        scores = evaluate_population(
-            population,
-            opponent_provider=provider,
-            charts="ABCDE",
-            games_per_chart=games_per_chart,
-            seed_offset=seed_offset,
-        )
+            scores = evaluate_population(
+                population,
+                opponent_provider=provider,
+                charts="ABCDE",
+                games_per_chart=games_per_chart,
+                seed_offset=seed_offset,
+            )
 
         best_idx = max(range(len(population)), key=lambda i: scores[i])
         best_score = scores[best_idx]
@@ -451,32 +607,53 @@ def run_ga(
         held_out_games = max(games_per_chart, 10)
         held_out_n_games = len("ABCDE") * held_out_games
 
-        if opponent_mode == "self_play":
-            held_out_provider = _make_self_play_provider(
-                last_population,
-                num_players=num_players,
-                sample_rng=random.Random(seed + 1),
-                n_games=held_out_n_games,
-            )
-        else:  # vs_evo2
-            assert evo2_weights is not None
-            held_out_provider = _make_evo2_opponent_provider(
-                evo2_weights, num_players=num_players
-            )
-
         held_out_scores: list[float] = []
-        for cand in finalists:
-            score = evaluate_against_fixed_provider(
-                cand,
-                opponent_provider=held_out_provider,
-                charts="ABCDE",
-                games_per_chart=held_out_games,
-                seed_offset=held_out_offset,
-            )
-            held_out_scores.append(score)
-        winner_idx = max(range(k), key=lambda i: held_out_scores[i])
-        result.best_weights = list(finalists[winner_idx])
-        result.best_fitness = held_out_scores[winner_idx]
+        if opponent_mode == "vs_all":
+            assert vs_all_providers is not None
+            per_provider_breakdown: list[dict[str, float]] = []
+            for cand in finalists:
+                pooled, per_provider = evaluate_against_multi(
+                    cand,
+                    providers=vs_all_providers,
+                    charts="ABCDE",
+                    games_per_chart=held_out_games,
+                    seed_offset=held_out_offset,
+                )
+                held_out_scores.append(pooled)
+                per_provider_breakdown.append(per_provider)
+            winner_idx = max(range(k), key=lambda i: held_out_scores[i])
+            result.best_weights = list(finalists[winner_idx])
+            result.best_fitness = held_out_scores[winner_idx]
+            breakdown = per_provider_breakdown[winner_idx]
+            print("held-out winner per-opponent win rates:")
+            for name, rate in breakdown.items():
+                print(f"  vs 3x {name:<12} = {rate * 100:5.1f}%")
+        else:
+            if opponent_mode == "self_play":
+                held_out_provider = _make_self_play_provider(
+                    last_population,
+                    num_players=num_players,
+                    sample_rng=random.Random(seed + 1),
+                    n_games=held_out_n_games,
+                )
+            else:  # vs_evo2
+                assert evo2_weights is not None
+                held_out_provider = _make_evo2_opponent_provider(
+                    evo2_weights, num_players=num_players
+                )
+
+            for cand in finalists:
+                score = evaluate_against_fixed_provider(
+                    cand,
+                    opponent_provider=held_out_provider,
+                    charts="ABCDE",
+                    games_per_chart=held_out_games,
+                    seed_offset=held_out_offset,
+                )
+                held_out_scores.append(score)
+            winner_idx = max(range(k), key=lambda i: held_out_scores[i])
+            result.best_weights = list(finalists[winner_idx])
+            result.best_fitness = held_out_scores[winner_idx]
 
     return result
 
@@ -498,11 +675,13 @@ def save_history_plot(
     opp_label = {
         "self_play": f"{num_players - 1}× sampled population",
         "vs_evo2":   f"{num_players - 1}× Evo2AI",
+        "vs_all":    f"{num_players - 1}× each of 6 previous bots (avg)",
     }[opponent_mode]
     ax.set_ylabel(f"win rate vs {opp_label}")
     mode_pretty = {
         "self_play": "self-play",
         "vs_evo2":   "vs Evo2",
+        "vs_all":    "vs all 6 previous bots (averaged)",
     }[opponent_mode]
     ax.set_title(f"Evo3AI GA fitness ({num_players}-player {mode_pretty})")
     ax.set_ylim(0.0, 1.0)
@@ -562,12 +741,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--opponent",
-        choices=("vs_evo2", "self_play"),
-        default="vs_evo2",
+        choices=("vs_all", "vs_evo2", "self_play"),
+        default="vs_all",
         help=(
-            "Opponent source. Default 'vs_evo2' uses fixed Evo2AI loaded "
-            "from artifacts/best_weights_evo2_* (lookup chain matches "
-            "`--ai evo2`); 'self_play' samples from the current "
+            "Opponent source. Default 'vs_all' averages win rate across "
+            "all six previous bots (Random, Heuristic, Adaptive, Hyper, "
+            "HyperAdapt, Evo2) — takes 6× longer than single-opponent "
+            "modes but avoids overfit. 'vs_evo2' uses fixed Evo2AI "
+            "loaded from artifacts/best_weights_evo2_* (lookup chain "
+            "matches `--ai evo2`); 'self_play' samples from the current "
             "population each generation."
         ),
     )
@@ -582,6 +764,7 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     tag = {
+        "vs_all":    "vs_all",
         "vs_evo2":   "vs_evo2",
         "self_play": "self",
     }[args.opponent]

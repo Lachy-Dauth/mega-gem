@@ -118,7 +118,9 @@ class ObserveRoundTest(unittest.TestCase):
 
     def test_records_positive_delta_when_opponent_bids_higher(self):
         ai = self._make_ai()
-        # my_idx=0, my bid=3, top opponent bid=10 → delta = 10-3 = 7.
+        # Baseline (what choose_bid would have cached this round) = 3.
+        # Top opponent bid = 10 → delta = 10 − 3 = 7.
+        ai._last_default_bid = 3
         ai.observe_round(
             None,  # state is unused by Evo3.observe_round
             0,
@@ -128,31 +130,132 @@ class ObserveRoundTest(unittest.TestCase):
         cat, delta = ai._opp_history[0]
         self.assertEqual(cat, _CAT_TREASURE)
         self.assertEqual(delta, 7.0)
+        # The baseline cache is consumed, not left stale.
+        self.assertIsNone(ai._last_default_bid)
 
     def test_records_negative_delta_when_i_outbid(self):
         ai = self._make_ai()
+        # Baseline = 15, top opponent = 8 → delta = -7.
+        ai._last_default_bid = 15
         ai.observe_round(
             None, 1, self._fake_result(LoanCard(10), [2, 15, 8])
         )
         cat, delta = ai._opp_history[0]
         self.assertEqual(cat, _CAT_LOAN)
-        # my_idx=1, my bid=15, max opp=max(2, 8)=8 → delta = -7.
         self.assertEqual(delta, -7.0)
 
     def test_ignores_rounds_with_no_opponents(self):
         ai = self._make_ai()
+        ai._last_default_bid = 4
         ai.observe_round(None, 0, self._fake_result(InvestCard(5), [4]))
+        self.assertEqual(len(ai._opp_history), 0)
+        # Baseline cache is still cleared so the next round starts clean.
+        self.assertIsNone(ai._last_default_bid)
+
+    def test_skipped_when_baseline_cache_missing(self):
+        # If choose_bid never ran (e.g. the AI was injected mid-game for
+        # a test), there's no baseline to anchor the delta — the
+        # observation is dropped rather than falling back to the actual
+        # bid, which would re-introduce the feedback loop the baseline
+        # is supposed to avoid.
+        ai = self._make_ai()
+        self.assertIsNone(ai._last_default_bid)
+        ai.observe_round(
+            None, 0, self._fake_result(TreasureCard(1), [3, 10, 5])
+        )
         self.assertEqual(len(ai._opp_history), 0)
 
     def test_history_accumulates_across_rounds(self):
         ai = self._make_ai()
+        ai._last_default_bid = 1
         ai.observe_round(None, 0, self._fake_result(TreasureCard(1), [1, 2]))
+        ai._last_default_bid = 3
         ai.observe_round(None, 0, self._fake_result(InvestCard(5), [3, 4]))
+        ai._last_default_bid = 5
         ai.observe_round(None, 0, self._fake_result(LoanCard(10), [5, 6]))
         self.assertEqual(
             [cat for cat, _ in ai._opp_history],
             [_CAT_TREASURE, _CAT_INVEST, _CAT_LOAN],
         )
+
+    def test_delta_uses_default_bid_not_actual_bid(self):
+        """Regression guard for the default-deltas baseline semantics.
+
+        When ``choose_bid`` would pick a different bid with/without the
+        opponent-delta history, the recorded delta must anchor on the
+        default-deltas baseline, *not* the actual bid that went into the
+        auction. We construct a head whose ``w_mean_delta`` coefficient
+        is non-zero, prime the history so the active delta is non-zero,
+        then call ``choose_bid`` and observe a synthetic round — the
+        recorded delta should equal ``max_opp − default_bid``, where
+        ``default_bid`` is what the same model would output with the
+        default ``(0.0, 1.0)`` delta inputs.
+        """
+        # Treasure head with a strong mean_delta coefficient, so the
+        # actual and default-deltas bids diverge.
+        from megagem.cards import Color, GemCard
+        from megagem.engine import setup_game
+        from megagem.players.random_ai import RandomAI
+
+        t_model = _Evo3TreasureModel(
+            bias=5.0,
+            w_rounds=0.0,
+            w_my=0.0,
+            w_avg=0.0,
+            w_top=0.0,
+            w_ev=0.0,
+            w_std=0.0,
+            w_mean_delta=2.0,
+            w_std_delta=0.0,
+        )
+        ai = Evo3AI(
+            "T",
+            treasure=t_model,
+            invest=_Evo3InvestModel(0, 0, 0, 0, 0, 0, 0, 0),
+            loan=_Evo3LoanModel(0, 0, 0, 0, 0, 0, 0, 0),
+        )
+        # Prime history so the treasure mean_delta feature is non-zero.
+        ai._opp_history = [(_CAT_TREASURE, 4.0)]
+
+        players = [ai, RandomAI("R1", seed=2), RandomAI("R2", seed=3),
+                   RandomAI("R3", seed=4)]
+        state = setup_game(players, chart="A", seed=7)
+        # Force a treasure auction to live on top of the deck.
+        state.auction_deck.append(TreasureCard(1))
+        if not state.revealed_gems:
+            state.revealed_gems.append(GemCard(Color.BLUE))
+        auction = state.auction_deck[-1]
+
+        actual_bid = ai.choose_bid(state, state.player_states[0], auction)
+        cached_default = ai._last_default_bid
+        # With mean_delta=4 and w_mean_delta=2, actual bid is ~8 higher
+        # in raw terms than the default-deltas bid.
+        self.assertIsNotNone(cached_default)
+        self.assertNotEqual(actual_bid, cached_default)
+
+        fake_bids = [actual_bid, actual_bid + 15, 0, 0]
+        ai.observe_round(
+            state,
+            0,
+            {
+                "round": 1,
+                "auction": auction,
+                "bids": fake_bids,
+                "winner_idx": 1,
+                "winning_bid": fake_bids[1],
+                "taken_gems": [],
+                "revealed_gem": None,
+                "completed_missions": [],
+            },
+        )
+        # The new history entry's delta must be max_opp − default_bid,
+        # NOT max_opp − actual_bid.
+        self.assertEqual(len(ai._opp_history), 2)
+        _, recorded_delta = ai._opp_history[-1]
+        expected = float(fake_bids[1] - cached_default)
+        wrong = float(fake_bids[1] - actual_bid)
+        self.assertEqual(recorded_delta, expected)
+        self.assertNotEqual(recorded_delta, wrong)
 
 
 # ----------------------------------------------------------------------------

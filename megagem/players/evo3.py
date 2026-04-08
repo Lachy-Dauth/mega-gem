@@ -2,9 +2,16 @@
 
 Identical to :class:`Evo2AI` except that each head gains two new features:
 
-* ``mean_delta`` — weighted mean of ``max(opponent bids) − my bid`` over
-  the rounds this AI has already played.
+* ``mean_delta`` — weighted mean of ``max(opponent bids) − baseline_bid``
+  over the rounds this AI has already played, where ``baseline_bid`` is
+  what Evo3 *would have bid* using the default delta values ``(0.0, 1.0)``
+  (i.e. the Evo2-like bid, ignoring any history).
 * ``std_delta``  — weighted standard deviation of the same quantity.
+
+Using the default-deltas bid as the baseline (rather than Evo3's actual
+bid) removes the feedback loop that would otherwise make the feature
+definition depend on the AI's current response to its own history — the
+baseline is a stable function of the state and the fixed model weights.
 
 The "weighted" bit: when computing the features for a given head (e.g. the
 treasure head on a treasure auction), observations from the matching
@@ -14,9 +21,11 @@ how opponents price treasures than previous treasures do — 4× was the
 weighting the user specified.
 
 On the first call the history is empty, so the defaults ``(0.0, 1.0)``
-are used. After each round resolves, the engine calls
-:meth:`Evo3AI.observe_round` with the full bid list, and the AI appends
-``(category, max_opp_bid − my_bid)`` to its history.
+are used. During :meth:`choose_bid` the AI caches the default-deltas
+baseline bid on ``self._last_default_bid``; after each round resolves
+the engine calls :meth:`Evo3AI.observe_round`, which pulls that cache
+out and appends ``(category, max_opp_bid − baseline_bid)`` to the
+history.
 
 Weight layout (flat 25-element vector, the form the GA produces):
 
@@ -302,11 +311,17 @@ class Evo3AI(Player):
     1. ``choose_bid`` reads the current opponent-delta history, computes
        weighted ``(mean_delta, std_delta)`` for the auction's category,
        feeds them into the active head alongside the Evo2 features, and
-       returns ``int(bid)`` clamped to ``[0, cap]``.
+       returns ``int(bid)`` clamped to ``[0, cap]``. It also computes a
+       *baseline bid* by running the same head with the default delta
+       values ``(0.0, 1.0)``, clamped identically, and stashes that on
+       ``self._last_default_bid``.
     2. After all players have bid and the engine has resolved the round,
-       the engine calls :meth:`observe_round`. Evo3 pulls its own bid
-       out of ``result["bids"][my_idx]``, computes the max opponent bid,
-       and appends ``(category, max_opp − my_bid)`` to ``_opp_history``.
+       the engine calls :meth:`observe_round`. Evo3 pulls the max
+       opponent bid from ``result["bids"]`` and appends
+       ``(category, max_opp − self._last_default_bid)`` to
+       ``_opp_history``. The baseline is the default-deltas bid, not
+       the actual bid Evo3 submitted, so the delta measurement does
+       not depend on Evo3's learned response to its own history.
 
     The history persists for the lifetime of the player instance, so
     across-game persistence is *not* provided — each game starts fresh.
@@ -367,10 +382,18 @@ class Evo3AI(Player):
             invest if invest is not None else self.DEFAULT_INVEST
         )
         self.loan_model = loan if loan is not None else self.DEFAULT_LOAN
-        # Log of (category, max_opp_bid − my_bid) for every round this
-        # instance has observed. Grows by one entry per call to
-        # observe_round; the engine calls that once per round per player.
+        # Log of (category, max_opp_bid − baseline_bid) for every round
+        # this instance has observed, where ``baseline_bid`` is what
+        # choose_bid would have output using the default delta values
+        # ``(0.0, 1.0)``. Grows by one entry per call to observe_round,
+        # which the engine invokes once per round per player.
         self._opp_history: list[tuple[str, float]] = []
+        # Scratch cache populated at the end of choose_bid: the
+        # default-deltas ("baseline") bid, clamped identically to the
+        # actual returned bid. observe_round reads and clears it so a
+        # stale value from a previous round can't leak into the next
+        # observation. None when no baseline has been cached yet.
+        self._last_default_bid: int | None = None
 
     @classmethod
     def from_weights(
@@ -405,19 +428,27 @@ class Evo3AI(Player):
         my_idx: int,
         result: dict,
     ) -> None:
+        # Pop the baseline cache unconditionally so a round we decide
+        # to skip (unknown auction kind, no opponents) can't leak its
+        # stale baseline into the next observation.
+        baseline = self._last_default_bid
+        self._last_default_bid = None
+
         auction = result.get("auction")
         cat = _category_of(auction) if auction is not None else None
         if cat is None:
             return
-        bids = result.get("bids") or []
-        if my_idx < 0 or my_idx >= len(bids):
+        if baseline is None:
+            # choose_bid wasn't called (or didn't cache a baseline) this
+            # round — skip the observation rather than fall back to the
+            # actual bid, so the delta definition stays consistent.
             return
-        my_bid = bids[my_idx]
+        bids = result.get("bids") or []
         opp_bids = [b for i, b in enumerate(bids) if i != my_idx]
         if not opp_bids:
             return
         max_opp = max(opp_bids)
-        self._opp_history.append((cat, float(max_opp - my_bid)))
+        self._opp_history.append((cat, float(max_opp - baseline)))
 
     # ------------------------------------------------------------------
     # Bid selection.
@@ -430,6 +461,7 @@ class Evo3AI(Player):
     ) -> int:
         cap = max_legal_bid(my_state, auction)
         if cap == 0:
+            self._last_default_bid = 0
             return 0
 
         f = _compute_evo2_features(public_state, my_state)
@@ -439,33 +471,57 @@ class Evo3AI(Player):
             mean_delta, std_delta = _weighted_delta_stats(
                 self._opp_history, _CAT_TREASURE
             )
-            raw = self.treasure_model.bid(
+            actual_raw = self.treasure_model.bid(
                 f, ev, std, mean_delta, std_delta
             )
-            return max(0, min(int(raw), cap))
+            # Baseline: same features, same weights, but the
+            # opponent-delta inputs pinned to the ``(0.0, 1.0)`` defaults.
+            # This is what the AI would bid if it had no history yet.
+            default_raw = self.treasure_model.bid(
+                f, ev, std, _DEFAULT_MEAN_DELTA, _DEFAULT_STD_DELTA
+            )
+            actual_bid = max(0, min(int(actual_raw), cap))
+            self._last_default_bid = max(0, min(int(default_raw), cap))
+            return actual_bid
 
         if isinstance(auction, InvestCard):
             mean_delta, std_delta = _weighted_delta_stats(
                 self._opp_history, _CAT_INVEST
             )
-            raw = self.invest_model.bid(
+            actual_raw = self.invest_model.bid(
                 f, auction.amount, mean_delta, std_delta
             )
-            bid = max(0, min(int(raw), cap))
-            # Free money — always grab a token bid if we can.
-            if bid == 0 and cap > 0:
-                bid = 1
-            return bid
+            default_raw = self.invest_model.bid(
+                f, auction.amount, _DEFAULT_MEAN_DELTA, _DEFAULT_STD_DELTA
+            )
+            actual_bid = max(0, min(int(actual_raw), cap))
+            default_bid = max(0, min(int(default_raw), cap))
+            # Free money — the token-bid-if-zero rule applies to both
+            # the actual bid (to avoid skipping free invests) and the
+            # baseline (so the recorded baseline matches what choose_bid
+            # would actually return for an empty history).
+            if actual_bid == 0 and cap > 0:
+                actual_bid = 1
+            if default_bid == 0 and cap > 0:
+                default_bid = 1
+            self._last_default_bid = default_bid
+            return actual_bid
 
         if isinstance(auction, LoanCard):
             mean_delta, std_delta = _weighted_delta_stats(
                 self._opp_history, _CAT_LOAN
             )
-            raw = self.loan_model.bid(
+            actual_raw = self.loan_model.bid(
                 f, auction.amount, mean_delta, std_delta
             )
-            return max(0, min(int(raw), cap))
+            default_raw = self.loan_model.bid(
+                f, auction.amount, _DEFAULT_MEAN_DELTA, _DEFAULT_STD_DELTA
+            )
+            actual_bid = max(0, min(int(actual_raw), cap))
+            self._last_default_bid = max(0, min(int(default_raw), cap))
+            return actual_bid
 
+        self._last_default_bid = 0
         return 0
 
     # ------------------------------------------------------------------
