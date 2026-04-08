@@ -50,7 +50,7 @@ class HeuristicAI(Player):
             value = _treasure_value(auction, public_state, my_state)
             target = int(value * self.DISCOUNT)
             # Floor: keep at least a tiny reserve so we're not broke.
-            reserve = self._reserve_for_future(public_state)
+            reserve = self._reserve_for_future(public_state, my_state)
             spendable = max(0, my_state.coins - reserve)
             bid = min(target, spendable, cap)
             return max(0, bid)
@@ -59,7 +59,7 @@ class HeuristicAI(Player):
             # Investments return their face value at end-of-game on top of the
             # locked bid — strictly positive cash flow. Bid surplus cash so we
             # don't starve future treasure bids.
-            reserve = self._reserve_for_future(public_state)
+            reserve = self._reserve_for_future(public_state, my_state)
             surplus = max(0, my_state.coins - reserve)
             # Always sneak in a token bid even if reserve is tight: free coins.
             bid = min(surplus, cap)
@@ -79,12 +79,16 @@ class HeuristicAI(Player):
 
         return 0
 
-    def _reserve_for_future(self, public_state: "GameState") -> int:
+    def _reserve_for_future(
+        self, public_state: "GameState", my_state: "PlayerState"
+    ) -> int:
         """Coins to keep aside for upcoming treasure auctions."""
         gems_left = _remaining_supply(public_state)
         # Roughly: half the remaining gems are likely worth bidding on.
         future_treasures = max(0, gems_left // 2)
-        avg_value = _expected_avg_treasure_value(public_state, public_state.player_states[0])
+        # Use *this* player's view of remaining-treasure value — using a
+        # fixed seat would skew non-zero-seat bidders.
+        avg_value = _expected_avg_treasure_value(public_state, my_state)
         # Use a fraction of avg so we don't over-reserve.
         return int(future_treasures * avg_value * 0.2)
 
@@ -96,7 +100,7 @@ class HeuristicAI(Player):
         my_state: "PlayerState",
         auction: AuctionCard,
     ) -> list[str]:
-        reserve = self._reserve_for_future(public_state)
+        reserve = self._reserve_for_future(public_state, my_state)
         spendable = max(0, my_state.coins - reserve)
         lines = [
             f"reserve={reserve}  spendable={spendable}  discount={self.DISCOUNT:.2f}",
@@ -125,7 +129,7 @@ class HeuristicAI(Player):
             opp_holding.update(ps.collection_gems)
 
         # Score each unique color present in our hand.
-        best_score: float | None = None
+        best_score: tuple[int, int] | None = None
         best_card: GemCard | None = None
         for card in my_state.hand:
             color = card.color

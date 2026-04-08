@@ -76,6 +76,20 @@ class _BidModel:
         )
         return max(0.0, min(1.0, raw))
 
+    def _clone(self) -> "_BidModel":
+        """Return an independent copy. Used to keep the class-level
+        ``DEFAULT_*`` constants from being shared across AI instances —
+        a per-instance tweak to ``treasure_model.bias`` would otherwise
+        leak into every other AI built from defaults."""
+        return _BidModel(
+            self.bias,
+            self.w_progress,
+            self.w_my_cash,
+            self.w_avg_cash,
+            self.w_top_cash,
+            self.w_variance,
+        )
+
 
 class HyperAdaptiveSplitAI(HyperAdaptiveAI):
     """HyperAdaptiveAI with three independent linear discount models.
@@ -113,9 +127,11 @@ class HyperAdaptiveSplitAI(HyperAdaptiveAI):
         seed: int | None = None,
     ) -> None:
         super().__init__(name, seed=seed)
-        self.treasure_model = treasure if treasure is not None else self.DEFAULT_TREASURE
-        self.invest_model = invest if invest is not None else self.DEFAULT_INVEST
-        self.loan_model = loan if loan is not None else self.DEFAULT_LOAN
+        # Always copy the class-level defaults so two AIs that fall back
+        # to the same default don't share a mutable model object.
+        self.treasure_model = treasure if treasure is not None else self.DEFAULT_TREASURE._clone()
+        self.invest_model = invest if invest is not None else self.DEFAULT_INVEST._clone()
+        self.loan_model = loan if loan is not None else self.DEFAULT_LOAN._clone()
 
     @classmethod
     def from_weights(
@@ -152,7 +168,7 @@ class HyperAdaptiveSplitAI(HyperAdaptiveAI):
             return 0
 
         features = _hyper_compute_discount_features(public_state, my_state)
-        reserve = self._reserve_for_future(public_state)
+        reserve = self._reserve_for_future(public_state, my_state)
         spendable = max(0, my_state.coins - reserve)
 
         if isinstance(auction, TreasureCard):
@@ -186,7 +202,7 @@ class HyperAdaptiveSplitAI(HyperAdaptiveAI):
         auction: AuctionCard,
     ) -> list[str]:
         features = _hyper_compute_discount_features(public_state, my_state)
-        reserve = self._reserve_for_future(public_state)
+        reserve = self._reserve_for_future(public_state, my_state)
         spendable = max(0, my_state.coins - reserve)
         td = self.treasure_model.discount(features)
         idd = self.invest_model.discount(features)

@@ -72,7 +72,7 @@ class HypergeometricAI(Player):
         if isinstance(auction, TreasureCard):
             value = _hyper_treasure_value(auction, public_state, my_state)
             target = int(value * self.DISCOUNT)
-            reserve = self._reserve_for_future(public_state)
+            reserve = self._reserve_for_future(public_state, my_state)
             spendable = max(0, my_state.coins - reserve)
             bid = min(target, spendable, cap)
             return max(0, bid)
@@ -81,7 +81,7 @@ class HypergeometricAI(Player):
             # Investments return their face value at end-of-game on top of
             # the locked bid — strictly positive cash flow. Bid surplus cash
             # so we don't starve future treasure bids.
-            reserve = self._reserve_for_future(public_state)
+            reserve = self._reserve_for_future(public_state, my_state)
             surplus = max(0, my_state.coins - reserve)
             bid = min(surplus, cap)
             if bid == 0 and cap > 0:
@@ -99,13 +99,15 @@ class HypergeometricAI(Player):
 
         return 0
 
-    def _reserve_for_future(self, public_state: "GameState") -> int:
+    def _reserve_for_future(
+        self, public_state: "GameState", my_state: "PlayerState"
+    ) -> int:
         """Coins to keep aside for upcoming treasure auctions."""
         gems_left = _remaining_supply(public_state)
         future_treasures = max(0, gems_left // 2)
-        avg_value = _hyper_avg_treasure_value(
-            public_state, public_state.player_states[0]
-        )
+        # Use *this* player's view of remaining-treasure value — using a
+        # fixed seat would skew non-zero-seat bidders.
+        avg_value = _hyper_avg_treasure_value(public_state, my_state)
         return int(future_treasures * avg_value * 0.2)
 
     # --- Debug rationale --------------------------------------------------
@@ -116,7 +118,7 @@ class HypergeometricAI(Player):
         my_state: "PlayerState",
         auction: AuctionCard,
     ) -> list[str]:
-        reserve = self._reserve_for_future(public_state)
+        reserve = self._reserve_for_future(public_state, my_state)
         spendable = max(0, my_state.coins - reserve)
         lines = [
             f"reserve={reserve}  spendable={spendable}  discount={self.DISCOUNT:.2f}",

@@ -42,13 +42,15 @@ class HyperAdaptiveAI(AdaptiveHeuristicAI):
        instead of a fixed 0.75 fraction.
     """
 
-    def _reserve_for_future(self, public_state: "GameState") -> int:
+    def _reserve_for_future(
+        self, public_state: "GameState", my_state: "PlayerState"
+    ) -> int:
         """Hyper-aware reserve. Same shape as HeuristicAI's, hyper avg."""
         gems_left = _remaining_supply(public_state)
         future_treasures = max(0, gems_left // 2)
-        avg_value = _hyper_avg_treasure_value(
-            public_state, public_state.player_states[0]
-        )
+        # Use *this* player's view of remaining-treasure value — using a
+        # fixed seat would skew non-zero-seat bidders.
+        avg_value = _hyper_avg_treasure_value(public_state, my_state)
         return int(future_treasures * avg_value * 0.2)
 
     def choose_bid(
@@ -64,7 +66,7 @@ class HyperAdaptiveAI(AdaptiveHeuristicAI):
         features = _hyper_compute_discount_features(public_state, my_state)
         discount = self.discount_rate(features)
 
-        reserve = self._reserve_for_future(public_state)
+        reserve = self._reserve_for_future(public_state, my_state)
         spendable = max(0, my_state.coins - reserve)
 
         if isinstance(auction, TreasureCard):
@@ -97,7 +99,7 @@ class HyperAdaptiveAI(AdaptiveHeuristicAI):
         auction: AuctionCard,
     ) -> list[str]:
         features = _hyper_compute_discount_features(public_state, my_state)
-        reserve = self._reserve_for_future(public_state)
+        reserve = self._reserve_for_future(public_state, my_state)
         spendable = max(0, my_state.coins - reserve)
         lines = [
             _format_discount_features(features),

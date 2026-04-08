@@ -516,10 +516,12 @@ class HeuristicAI {
         this.noise = noise;
     }
 
-    reserveForFuture(state) {
+    reserveForFuture(state, myState) {
         const gemsLeft = remainingSupply(state);
         const futureTreasures = Math.max(0, Math.floor(gemsLeft / 2));
-        const avg = expectedAvgTreasureValue(state, state.playerStates[0]);
+        // Use *this* player's view of remaining-treasure value — using a
+        // fixed seat would skew non-zero-seat bidders.
+        const avg = expectedAvgTreasureValue(state, myState);
         return Math.floor(futureTreasures * avg * 0.2);
     }
 
@@ -545,14 +547,14 @@ class HeuristicAI {
         if (auction.kind === "treasure") {
             const value = treasureValue(auction, state, myState);
             const target = Math.floor(value * this.DISCOUNT);
-            const reserve = this.reserveForFuture(state);
+            const reserve = this.reserveForFuture(state, myState);
             const spendable = Math.max(0, myState.coins - reserve);
             const bid = Math.max(0, Math.min(target, spendable, cap));
             return this._jitter(bid, cap);
         }
 
         if (auction.kind === "invest") {
-            const reserve = this.reserveForFuture(state);
+            const reserve = this.reserveForFuture(state, myState);
             const surplus = Math.max(0, myState.coins - reserve);
             let bid = Math.min(surplus, cap);
             if (bid === 0 && cap > 0) bid = 1;
@@ -820,14 +822,13 @@ class HyperAdaptiveSplitAI {
         this.loanModel     = new BidModel(weights.slice(12, 18));
     }
 
-    reserveForFuture(state) {
+    reserveForFuture(state, myState) {
         // Mirrors HyperAdaptiveAI._reserve_for_future: hyper avg × halved gem
-        // supply × 0.2. Note Python passes player_states[0] which is the ref
-        // player at table seat 0, not necessarily this AI — we keep that
-        // exact behaviour so the JS bid matches the Python bid.
+        // supply × 0.2, evaluated against *this* player's view of remaining
+        // treasure value (not seat 0).
         const gemsLeft = remainingSupply(state);
         const futureTreasures = Math.max(0, Math.floor(gemsLeft / 2));
-        const avg = _hyperAvgTreasureValue(state, state.playerStates[0]);
+        const avg = _hyperAvgTreasureValue(state, myState);
         return Math.floor(futureTreasures * avg * 0.2);
     }
 
@@ -836,7 +837,7 @@ class HyperAdaptiveSplitAI {
         if (cap === 0) return 0;
 
         const features = _hyperComputeDiscountFeatures(state, myState);
-        const reserve = this.reserveForFuture(state);
+        const reserve = this.reserveForFuture(state, myState);
         const spendable = Math.max(0, myState.coins - reserve);
 
         if (auction.kind === "treasure") {

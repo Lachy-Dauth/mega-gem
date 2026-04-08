@@ -158,15 +158,16 @@ def _treasure_value(
     if not gems_for_sale:
         return 0
 
-    # Sum marginal values, accounting for diminishing returns within the same
-    # auction (two of the same color increases own count by 2 -> chart bumps).
+    # Value each gem independently using the same expected final-display
+    # count for its color. This heuristic intentionally does not apply
+    # additional within-auction marginal adjustments based on other gems
+    # won in the same treasure; bundle effects are captured separately
+    # via the mission bonuses below.
     extra = Counter()
     gem_value = 0
     for gem in gems_for_sale:
-        # Bump the expected display by what we've already taken in this auction
-        # to model the effect of putting both into the display indirectly via
-        # future hand reveals — actually no, the gems we BUY go to our collection,
-        # not the display. So per-gem value uses the unmodified display estimate.
+        # Bought gems go to our collection, not the display, so the
+        # per-gem chart lookup uses the unmodified expected display estimate.
         gem_value += _chart_value(state.value_chart, expected_display[gem.color])
         extra[gem.color] += 1
 
@@ -327,6 +328,13 @@ def _hyper_hidden_distribution(
     deck_size = len(state.gem_deck)
     hidden_total = opp_hand_total + deck_size  # total hidden card slots ("H")
 
+    # The hypergeometric denominator only depends on (hidden_total,
+    # opp_hand_total), so it's the same for every color. Hoist it out of
+    # the per-color loop — math.comb on the big-int sizes here is the
+    # hottest single op in this function.
+    has_randomness = hidden_total > 0 and opp_hand_total > 0
+    denom = math.comb(hidden_total, opp_hand_total) if has_randomness else 0
+
     distributions: dict[Color, dict[int, float]] = {}
     for color in Color:
         seen = (
@@ -340,17 +348,12 @@ def _hyper_hidden_distribution(
         known_offset = display.get(color, 0) + my_hand.get(color, 0)
 
         dist: dict[int, float] = {}
-        if (
-            hidden_total == 0
-            or opp_hand_total == 0
-            or hidden_of_color == 0
-        ):
+        if not has_randomness or hidden_of_color == 0:
             # No randomness left for this color: either no opponent slots
             # exist, opponents hold no hidden cards, or none of those cards
             # could possibly be color c. Final count is exactly known_offset.
             dist[known_offset] = 1.0
         else:
-            denom = math.comb(hidden_total, opp_hand_total)
             k_min = max(0, opp_hand_total - (hidden_total - hidden_of_color))
             k_max = min(hidden_of_color, opp_hand_total)
             for k in range(k_min, k_max + 1):

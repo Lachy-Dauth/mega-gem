@@ -70,7 +70,7 @@ class AdaptiveHeuristicAI(HeuristicAI):
         discount = self.discount_rate(features)
 
         # Reserve cash for upcoming auctions (inherited from HeuristicAI).
-        reserve = self._reserve_for_future(public_state)
+        reserve = self._reserve_for_future(public_state, my_state)
         spendable = max(0, my_state.coins - reserve)
 
         if isinstance(auction, TreasureCard):
@@ -108,7 +108,7 @@ class AdaptiveHeuristicAI(HeuristicAI):
         auction: AuctionCard,
     ) -> list[str]:
         features = _compute_discount_features(public_state, my_state)
-        reserve = self._reserve_for_future(public_state)
+        reserve = self._reserve_for_future(public_state, my_state)
         spendable = max(0, my_state.coins - reserve)
         lines = [
             _format_discount_features(features),
