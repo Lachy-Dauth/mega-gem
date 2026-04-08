@@ -87,31 +87,13 @@ def make_factories() -> dict:
         ),
     }
 
-    # Evo2 ships in two flavours depending on which GA produced it.
-    # Show both rows when both files exist so the matrix answers
-    # "did training against the old champion generalise better than
-    #  self-play?" directly.
-    evo2_vs_old = _try_load(
-        "artifacts/best_weights_evo2_vs_old_4p.json",
+    evo2 = _try_load(
+        "artifacts/best_weights_evo2_4p.json",
     )
-    evo2_self = _try_load(
-        "artifacts/best_weights_evo2_self_4p.json",
-        "artifacts/best_weights_evo2_4p.json",   # legacy untagged
-        "artifacts/best_weights_evo2.json",      # legacy global
-    )
-    if evo2_vs_old is not None:
-        # Capture by default-arg so the lambda doesn't close over the
-        # loop variable (matters when both flavours are registered).
-        factories["Evo2(vs old)"] = lambda name, seed, w=evo2_vs_old: (
-            Evo2AI.from_weights(name, w, seed=seed)
-        )
-    if evo2_self is not None:
-        factories["Evo2(self)"] = lambda name, seed, w=evo2_self: (
-            Evo2AI.from_weights(name, w, seed=seed)
-        )
-    if evo2_vs_old is None and evo2_self is None:
-        print("(Evo2 skipped — no artifacts/best_weights_evo2_*.json yet. "
-              "Run `python -m scripts.evolve_evo2` to include it.)")
+
+    if evo2 is not None:
+        factories["Evo2"] = lambda name, seed: Evo2AI.from_weights(name, evo2, seed=seed)
+
     return factories
 
 

@@ -554,7 +554,7 @@ def main() -> None:
     )
     parser.add_argument("--population", type=int, default=24)
     parser.add_argument("--generations", type=int, default=30)
-    parser.add_argument("--games-per-chart", type=int, default=10)
+    parser.add_argument("--games-per-chart", type=int, default=40)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
         "--num-players",

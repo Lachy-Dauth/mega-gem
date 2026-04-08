@@ -893,6 +893,472 @@ class HyperAdaptiveSplitAI {
     }
 }
 
+// ======================================================================
+// Evo2AI — JS port of megagem/players_evo2.py:Evo2AI
+//
+// Clean-slate evolved player. Differences from HyperAdaptiveSplitAI:
+//   * Drops the static reserve floor — bids cap at the legal cap directly.
+//   * Replaces the auctions_left/25 progress proxy with an EXACT
+//     E[rounds remaining] computed by closed-form multivariate
+//     hypergeometric over the auction-deck composition + gem supply.
+//   * Replaces cash-ratio features with raw integer my_coins / avg_opp /
+//     top_opp — the GA learns the right scale.
+//   * Treasure head gains two per-card features: ev and std-dev of the
+//     prize's coin value, derived from the same hypergeometric used by
+//     HyperAdaptiveSplitAI for its gem-value estimator.
+//   * Treasure EV also adds a mission probability delta — for every
+//     active mission, P(I win mission | I take the gems) − P(I win |
+//     highest-coin opponent takes them), scaled by mission.coins.
+//   * Heads output the bid in COINS DIRECTLY: bid = bias + Σ wᵢ·featᵢ,
+//     clamped to [0, cap] once at chooseBid. No discount fraction × EV.
+//   * 19 weights instead of 18: treasure(7) + invest(6) + loan(6).
+// ======================================================================
+
+const _IMPOSSIBLE_DISTANCE = 99;
+
+function combinationsWithReplacement(arr, k) {
+    const out = [];
+    const buf = [];
+    const rec = (start) => {
+        if (buf.length === k) { out.push(buf.slice()); return; }
+        for (let i = start; i < arr.length; i++) {
+            buf.push(arr[i]);
+            rec(i); // i, not i+1 — replacement
+            buf.pop();
+        }
+    };
+    rec(0);
+    return out;
+}
+
+// _expected_rounds_remaining_impl, JS port. Memoized on the integer
+// signature (A, T1, T2, NT, G); within one round all four AIs hit the
+// cache for the same arguments.
+const _ROUNDS_CACHE = new Map();
+const _ROUNDS_CACHE_LIMIT = 4096;
+
+function _expectedRoundsRemainingImpl(A, T1, T2, NT, G) {
+    if (A === 0 || G === 0) return 0.0;
+    if (T1 === 0 && T2 === 0) return A; // no treasures → only deck-exhaustion ends it
+
+    const key = `${A},${T1},${T2},${NT},${G}`;
+    const cached = _ROUNDS_CACHE.get(key);
+    if (cached !== undefined) return cached;
+
+    // Precompute binomial tables — math.comb was the dominant cost in
+    // the Python profile and the same shape applies here.
+    const combT1 = new Array(T1 + 1);
+    const combT2 = new Array(T2 + 1);
+    const combNT = new Array(NT + 1);
+    const combA  = new Array(A + 1);
+    for (let k = 0; k <= T1; k++) combT1[k] = mathComb(T1, k);
+    for (let k = 0; k <= T2; k++) combT2[k] = mathComb(T2, k);
+    for (let k = 0; k <= NT; k++) combNT[k] = mathComb(NT, k);
+    for (let k = 0; k <= A;  k++) combA[k]  = mathComb(A, k);
+
+    // E[rounds] = Σ_{k=1..A} P(first k-1 cards consumed < G gems).
+    // The j=0 term (no cards drawn yet) is 1.
+    let total = 1.0;
+    for (let j = 1; j < A; j++) {
+        const denom = combA[j];
+        let pUnder = 0.0;
+        const j1Max = Math.min(T1, j);
+        for (let j1 = 0; j1 <= j1Max; j1++) {
+            // j2 ≤ (G − j1 − 1) // 2 from gems_consumed < G constraint.
+            const j2Cap = Math.min(T2, j - j1, Math.floor((G - j1 - 1) / 2));
+            if (j2Cap < 0) continue;
+            const ct1 = combT1[j1];
+            for (let j2 = 0; j2 <= j2Cap; j2++) {
+                const jnt = j - j1 - j2;
+                if (jnt < 0 || jnt > NT) continue;
+                pUnder += ct1 * combT2[j2] * combNT[jnt] / denom;
+            }
+        }
+        total += pUnder;
+    }
+
+    if (_ROUNDS_CACHE.size >= _ROUNDS_CACHE_LIMIT) _ROUNDS_CACHE.clear();
+    _ROUNDS_CACHE.set(key, total);
+    return total;
+}
+
+function _expectedRoundsRemaining(state) {
+    const A = state.auctionDeck.length;
+    if (A === 0) return 0.0;
+    const G = state.gemDeck.length + state.revealedGems.length;
+    if (G === 0) return 0.0;
+    let T1 = 0, T2 = 0;
+    for (const c of state.auctionDeck) {
+        if (c.kind !== "treasure") continue;
+        if (c.gems === 1) T1++;
+        else if (c.gems === 2) T2++;
+    }
+    const NT = A - T1 - T2;
+    return _expectedRoundsRemainingImpl(A, T1, T2, NT, G);
+}
+
+// Per-color (E[chart_value(final_display)], Var[...]). Walks the same
+// hypergeometric distribution HyperAdaptiveSplitAI uses, accumulating
+// first and second moments. Variance clamped at 0 for FP safety.
+function _perColorValueStats(state, myState, chart) {
+    const distributions = _hyperHiddenDistribution(state, myState);
+    const stats = {};
+    for (const color of COLORS) {
+        let ev = 0.0, ev2 = 0.0;
+        for (const [count, p] of distributions[color]) {
+            const v = valueFor(chart, Math.min(count, 5));
+            ev += p * v;
+            ev2 += p * v * v;
+        }
+        stats[color] = [ev, Math.max(0.0, ev2 - ev * ev)];
+    }
+    return stats;
+}
+
+// (EV, std) for the coin value of winning this treasure auction.
+// Same-color contributions are perfectly correlated (exact n²·var);
+// across-color treated as independent (an approximation). Mission
+// terms are deterministic and feed only the EV.
+function _treasureValueStats(card, state, myState) {
+    const gemsForSale = state.revealedGems.slice(
+        0, Math.min(card.gems, state.revealedGems.length)
+    );
+    if (gemsForSale.length === 0) return [0.0, 0.0];
+
+    const stats = _perColorValueStats(state, myState, state.chart);
+    const colorCounts = emptyGemCounter();
+    for (const g of gemsForSale) colorCounts[g.color] += 1;
+
+    let ev = 0.0, varSum = 0.0;
+    for (const color of COLORS) {
+        const n = colorCounts[color];
+        if (n === 0) continue;
+        const [mean, v] = stats[color];
+        ev += n * mean;
+        varSum += (n * n) * v;
+    }
+
+    const extra = colorCounts; // alias — same shape as the Python Counter
+    ev += missionCompletionBonus(myState, state.activeMissions, extra);
+    ev += missionProgressBonus(myState, state.activeMissions, extra);
+    ev += _missionProbabilityDelta(card, state, myState);
+    return [ev, Math.sqrt(varSum)];
+}
+
+// Smallest k such that some k-multiset of colors added to `holdings`
+// satisfies the mission. Returns 0 if already satisfied,
+// _IMPOSSIBLE_DISTANCE if no multiset of size ≤ max_k works.
+const _DISTANCE_CACHE = new Map();
+const _DISTANCE_CACHE_LIMIT = 16384;
+
+function _holdingsKey(holdings) {
+    // Fixed-order 5-tuple stringified — hashable for the Map.
+    return (
+        (holdings.Blue || 0) + "," +
+        (holdings.Green || 0) + "," +
+        (holdings.Pink || 0) + "," +
+        (holdings.Purple || 0) + "," +
+        (holdings.Yellow || 0)
+    );
+}
+
+function _minExtraGemsToSatisfy(holdings, mission, maxK = 6) {
+    const key = _holdingsKey(holdings) + "|" + mission.name;
+    const cached = _DISTANCE_CACHE.get(key);
+    if (cached !== undefined) return cached;
+
+    let result;
+    if (mission.check(holdings)) {
+        result = 0;
+    } else {
+        // Single mutable working dict; add a combo, test, undo.
+        const candidate = { ...holdings };
+        result = _IMPOSSIBLE_DISTANCE;
+        outer:
+        for (let k = 1; k <= maxK; k++) {
+            for (const combo of combinationsWithReplacement(COLORS, k)) {
+                for (const c of combo) candidate[c] = (candidate[c] || 0) + 1;
+                const ok = mission.check(candidate);
+                for (const c of combo) candidate[c] -= 1;
+                if (ok) { result = k; break outer; }
+            }
+        }
+    }
+
+    if (_DISTANCE_CACHE.size >= _DISTANCE_CACHE_LIMIT) _DISTANCE_CACHE.clear();
+    _DISTANCE_CACHE.set(key, result);
+    return result;
+}
+
+// Heuristic P(player_idx claims `mission` before game end). The shape
+// matches the Python: already-satisfied lowest-seat wins (engine
+// tie-break); otherwise score by coin_ratio / (1 + distance), zero out
+// impossible / supply-blocked, normalize. holdingOverrides lets the
+// caller hypothetically add gems to a player's collection without
+// touching state.
+function _pPlayerWinsMission(playerIdx, state, mission, holdingOverrides) {
+    const overrides = holdingOverrides || {};
+    const players = state.playerStates;
+    const n = players.length;
+
+    const holdingsPerPlayer = players.map((ps, idx) => {
+        const h = { ...ps.collection };
+        const ovr = overrides[idx];
+        if (ovr) {
+            for (const c of COLORS) {
+                if (ovr[c]) h[c] = (h[c] || 0) + ovr[c];
+            }
+        }
+        return h;
+    });
+
+    // Engine tie-break: lowest seat with a satisfying collection wins.
+    for (let idx = 0; idx < n; idx++) {
+        if (mission.check(holdingsPerPlayer[idx])) {
+            return idx === playerIdx ? 1.0 : 0.0;
+        }
+    }
+
+    // In-play pool: gems not in any collection.
+    let inPlayTotal = 0;
+    for (const color of COLORS) {
+        let held = 0;
+        for (const h of holdingsPerPlayer) held += h[color] || 0;
+        inPlayTotal += Math.max(0, GEMS_PER_COLOR - held);
+    }
+
+    let coinSum = 0;
+    for (const ps of players) coinSum += ps.coins;
+    const avgCoins = coinSum / Math.max(1, n);
+
+    const scores = new Array(n);
+    let totalScore = 0.0;
+    for (let idx = 0; idx < n; idx++) {
+        const distance = _minExtraGemsToSatisfy(holdingsPerPlayer[idx], mission);
+        if (distance >= _IMPOSSIBLE_DISTANCE || inPlayTotal < distance) {
+            scores[idx] = 0.0;
+            continue;
+        }
+        const coinRatio = (players[idx].coins + 1) / (avgCoins + 1);
+        const s = coinRatio / (1.0 + distance);
+        scores[idx] = s;
+        totalScore += s;
+    }
+    if (totalScore === 0.0) return 0.0;
+    return scores[playerIdx] / totalScore;
+}
+
+// Σ over active missions of (p_win − p_lose) · mission.coins, where the
+// "lose" branch assigns the gems to the highest-coin opponent (cheap
+// proxy for the most likely auction winner).
+function _missionProbabilityDelta(card, state, myState) {
+    const gemsForSale = state.revealedGems.slice(
+        0, Math.min(card.gems, state.revealedGems.length)
+    );
+    if (gemsForSale.length === 0 || state.activeMissions.length === 0) {
+        return 0.0;
+    }
+    const extra = emptyGemCounter();
+    for (const g of gemsForSale) extra[g.color] += 1;
+
+    const myIdx = state.playerStates.indexOf(myState);
+    if (myIdx < 0) return 0.0;
+
+    let likelyOpp = -1;
+    let topOppCoins = -Infinity;
+    state.playerStates.forEach((ps, idx) => {
+        if (idx === myIdx) return;
+        if (ps.coins > topOppCoins) { topOppCoins = ps.coins; likelyOpp = idx; }
+    });
+    if (likelyOpp < 0) return 0.0;
+
+    let delta = 0.0;
+    for (const mission of state.activeMissions) {
+        const pWin  = _pPlayerWinsMission(myIdx, state, mission, { [myIdx]: extra });
+        const pLose = _pPlayerWinsMission(myIdx, state, mission, { [likelyOpp]: extra });
+        delta += (pWin - pLose) * mission.coins;
+    }
+    return delta;
+}
+
+function _computeEvo2Features(state, myState) {
+    const rounds = _expectedRoundsRemaining(state);
+    const opp = [];
+    for (const ps of state.playerStates) {
+        if (ps !== myState) opp.push(ps.coins);
+    }
+    const avg = opp.length > 0 ? opp.reduce((a, b) => a + b, 0) / opp.length : 0;
+    const top = opp.length > 0 ? Math.max(...opp) : 0;
+    return {
+        roundsRemaining: rounds,
+        myCoins: myState.coins,
+        avgOppCoins: avg,
+        topOppCoins: top,
+    };
+}
+
+// --- Three head models. They output the bid in COINS DIRECTLY (a raw
+// float — clamping happens once in chooseBid). Each takes the same four
+// shared features plus its own per-card feature(s).
+
+class _Evo2TreasureModel {
+    // weights7: [bias, w_rounds, w_my, w_avg, w_top, w_ev, w_std]
+    constructor(w) {
+        this.bias    = w[0];
+        this.wRounds = w[1];
+        this.wMy     = w[2];
+        this.wAvg    = w[3];
+        this.wTop    = w[4];
+        this.wEv     = w[5];
+        this.wStd    = w[6];
+    }
+    bid(f, ev, std) {
+        return this.bias
+             + this.wRounds * f.roundsRemaining
+             + this.wMy     * f.myCoins
+             + this.wAvg    * f.avgOppCoins
+             + this.wTop    * f.topOppCoins
+             + this.wEv     * ev
+             + this.wStd    * std;
+    }
+}
+
+class _Evo2AmountModel {
+    // weights6: [bias, w_rounds, w_my, w_avg, w_top, w_amount]
+    // Shared by invest and loan — structurally identical.
+    constructor(w) {
+        this.bias    = w[0];
+        this.wRounds = w[1];
+        this.wMy     = w[2];
+        this.wAvg    = w[3];
+        this.wTop    = w[4];
+        this.wAmount = w[5];
+    }
+    bid(f, amount) {
+        return this.bias
+             + this.wRounds * f.roundsRemaining
+             + this.wMy     * f.myCoins
+             + this.wAvg    * f.avgOppCoins
+             + this.wTop    * f.topOppCoins
+             + this.wAmount * amount;
+    }
+}
+
+// Evolved by scripts/evolve_evo2.py --opponent self_play. Each set is the
+// per-seat-count GA winner from `artifacts/best_weights_evo2_{N}p.json` —
+// the same files the canonical heatmap loads. 19-vector layout:
+// treasure(7) + invest(6) + loan(6).
+//
+// Self-play beats the `--opponent old_evo` weights head-to-head (35% as the
+// lone challenger vs 3× old-evo on held-out seeds), so we ship self-play.
+// 5p falls back to 4p until per-seat-count training finishes — paste from
+// `artifacts/best_weights_evo2_5p.json` when it does.
+const EVO2_WEIGHTS_3P = [
+    // treasure: bias, w_rounds, w_my, w_avg, w_top, w_ev, w_std
+    1.1283650469891564, 0.004868855623980664, 0.10655847982258716,
+    -0.07110456037718273, -0.014760843333120069, 0.3,
+    -0.27549810321079016,
+    // invest: bias, w_rounds, w_my, w_avg, w_top, w_amount
+    2.0, -0.004050924080936394, 0.12166352569093686,
+    -0.11450212366614854, -0.018890045923634705, 0.34920975704051466,
+    // loan: bias, w_rounds, w_my, w_avg, w_top, w_amount
+    0.9381212092519632, 0.07857322565139474, -0.07029638619042584,
+    -0.1984092534881384, 0.14134434658521194, 0.4034770895444064,
+];
+const EVO2_WEIGHTS_4P = [
+    // treasure: bias, w_rounds, w_my, w_avg, w_top, w_ev, w_std
+    0.9671062444221764, -0.0906995616980441, 0.07804979550128198,
+    0.05375147152736104, -0.04247465810129918, 0.32783828473034604,
+    -0.011838494331700117,
+    // invest: bias, w_rounds, w_my, w_avg, w_top, w_amount
+    1.908464547879478, 0.4300303741599258, -0.1201852409204779,
+    -0.28421403664160627, 0.3149361220138405, 0.07219353469220569,
+    // loan: bias, w_rounds, w_my, w_avg, w_top, w_amount
+    -0.4139242208454687, -0.31190499765072527, 0.13966251262722051,
+    0.12135141558388368, -0.0669196243751372, 0.36349000133503273,
+];
+// TODO: replace once `python -m scripts.evolve_evo2 --num-players 5`
+// produces `artifacts/best_weights_evo2_5p.json`.
+const EVO2_WEIGHTS_5P = EVO2_WEIGHTS_4P;
+
+function evo2WeightsFor(numPlayers) {
+    if (numPlayers === 3) return EVO2_WEIGHTS_3P;
+    if (numPlayers === 4) return EVO2_WEIGHTS_4P;
+    if (numPlayers === 5) return EVO2_WEIGHTS_5P;
+    return EVO2_WEIGHTS_4P;
+}
+
+class Evo2AI {
+    constructor(name, rng, weights) {
+        if (!Array.isArray(weights) || weights.length !== 19) {
+            throw new Error("Evo2AI requires a 19-element weights array");
+        }
+        this.name = name;
+        this.isHuman = false;
+        this.rng = rng;
+        this.treasureModel = new _Evo2TreasureModel(weights.slice(0, 7));
+        this.investModel   = new _Evo2AmountModel(weights.slice(7, 13));
+        this.loanModel     = new _Evo2AmountModel(weights.slice(13, 19));
+    }
+
+    chooseBid(state, myState, auction) {
+        const cap = maxLegalBid(myState, auction);
+        if (cap === 0) return 0;
+        const f = _computeEvo2Features(state, myState);
+
+        if (auction.kind === "treasure") {
+            const [ev, std] = _treasureValueStats(auction, state, myState);
+            const raw = this.treasureModel.bid(f, ev, std);
+            return Math.max(0, Math.min(Math.floor(raw), cap));
+        }
+
+        if (auction.kind === "invest") {
+            const raw = this.investModel.bid(f, auction.amount);
+            let bid = Math.max(0, Math.min(Math.floor(raw), cap));
+            // Free money — always grab a token bid if we can.
+            if (bid === 0 && cap > 0) bid = 1;
+            return bid;
+        }
+
+        if (auction.kind === "loan") {
+            const raw = this.loanModel.bid(f, auction.amount);
+            return Math.max(0, Math.min(Math.floor(raw), cap));
+        }
+
+        return 0;
+    }
+
+    // Reveal logic is identical to HeuristicAI/HypergeometricAI — the
+    // Evo2 redesign targets bidding only.
+    chooseGemToReveal(state, myState) {
+        const chart = state.chart;
+        const display = state.valueDisplay;
+        const myHolding = myState.collection;
+        const oppHolding = emptyGemCounter();
+        for (const ps of state.playerStates) {
+            if (ps === myState) continue;
+            for (const c of COLORS) oppHolding[c] += ps.collection[c] || 0;
+        }
+        let bestScore = null;
+        let bestCard = null;
+        for (const card of myState.hand) {
+            const color = card.color;
+            const current = display[color] || 0;
+            const delta = valueFor(chart, current + 1) - valueFor(chart, current);
+            const relative = (myHolding[color] || 0) - (oppHolding[color] || 0);
+            const netBenefit = delta * relative;
+            const tiebreak = -(myHolding[color] || 0);
+            if (bestScore === null
+                || netBenefit > bestScore[0]
+                || (netBenefit === bestScore[0] && tiebreak > bestScore[1])) {
+                bestScore = [netBenefit, tiebreak];
+                bestCard = card;
+            }
+        }
+        return bestCard || myState.hand[0];
+    }
+}
+
 // ---------- exports (attached to window for ui.js) ------------------------
 
 window.MegaGem = {
@@ -916,8 +1382,13 @@ window.MegaGem = {
     RandomAI,
     HeuristicAI,
     HyperAdaptiveSplitAI,
+    Evo2AI,
     evolvedWeightsFor,
+    evo2WeightsFor,
     EVOLVED_WEIGHTS_3P,
     EVOLVED_WEIGHTS_4P,
     EVOLVED_WEIGHTS_5P,
+    EVO2_WEIGHTS_3P,
+    EVO2_WEIGHTS_4P,
+    EVO2_WEIGHTS_5P,
 };

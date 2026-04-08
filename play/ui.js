@@ -66,6 +66,11 @@ function buildMissionLookup() {
 }
 
 function aiKindOf(ai) {
+    // Order matters: Evo2AI must be checked before HyperAdaptiveSplitAI
+    // would have been (they're independent classes, but defensive in
+    // case someone refactors). HeuristicAI is checked last among the
+    // heuristic family because AdaptiveHeuristic could subclass it.
+    if (ai instanceof M.Evo2AI) return "evo2";
     if (ai instanceof M.HyperAdaptiveSplitAI) return "evolved";
     if (ai instanceof M.HeuristicAI) return "heuristic";
     if (ai instanceof M.RandomAI) return "random";
@@ -80,10 +85,11 @@ function serializeAI(ai) {
     };
 }
 
-function buildAI(name, savedAI, evolvedWeights) {
+function buildAI(name, savedAI, evolvedWeights, evo2Weights) {
     const rng = M.makeRng(savedAI.rngSeed, savedAI.rngState);
     if (savedAI.kind === "random")    return new M.RandomAI(name, rng);
     if (savedAI.kind === "heuristic") return new M.HeuristicAI(name, rng, { noise: true });
+    if (savedAI.kind === "evo2")      return new M.Evo2AI(name, rng, evo2Weights);
     return new M.HyperAdaptiveSplitAI(name, rng, evolvedWeights);
 }
 
@@ -138,6 +144,7 @@ function deserializeSession(saved) {
     const missionLookup = buildMissionLookup();
     const numPlayers = ss.playerStates.length;
     const evolvedWeights = M.evolvedWeightsFor(numPlayers);
+    const evo2Weights = M.evo2WeightsFor(numPlayers);
 
     const playerStates = ss.playerStates.map((psSaved) => {
         let ai;
@@ -149,7 +156,7 @@ function deserializeSession(saved) {
                 chooseGemToReveal: () => null,
             };
         } else {
-            ai = buildAI(psSaved.name, psSaved.ai, evolvedWeights);
+            ai = buildAI(psSaved.name, psSaved.ai, evolvedWeights, evo2Weights);
         }
         return {
             name: psSaved.name,
@@ -257,6 +264,7 @@ function startGame() {
 
     const players = [human];
     const evolvedWeights = M.evolvedWeightsFor(numPlayers);
+    const evo2Weights = M.evo2WeightsFor(numPlayers);
     for (let i = 0; i < numPlayers - 1; i++) {
         const aiSeed = masterRng.int(2 ** 31);
         const aiRng = M.makeRng(aiSeed);
@@ -266,6 +274,10 @@ function startGame() {
             // Medium: deterministic heuristic with uniform bid noise so it
             // is occasionally beatable / surprising.
             players.push(new M.HeuristicAI(aiNames[i], aiRng, { noise: true }));
+        } else if (aiKind === "evo2") {
+            // Hardest: clean-slate evolved AI tuned against the previous
+            // champion. See megagem/players_evo2.py for the design notes.
+            players.push(new M.Evo2AI(aiNames[i], aiRng, evo2Weights));
         } else {
             // "evolved" — GA-tuned HyperAdaptiveSplitAI with the weight set
             // matched to this player count.
@@ -287,7 +299,11 @@ function startGame() {
     clearLog();
     const aiLabel = aiKind === "random"
         ? "random"
-        : (aiKind === "heuristic" ? "heuristic+noise" : "evolved");
+        : aiKind === "heuristic"
+            ? "heuristic+noise"
+            : aiKind === "evo2"
+                ? "evo2"
+                : "evolved";
     log(`Game started: ${numPlayers} players, chart ${chart}, AI = ${aiLabel}.`,
         "log-round");
     showScreen("game");
