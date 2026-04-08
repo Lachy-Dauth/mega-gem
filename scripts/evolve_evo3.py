@@ -212,13 +212,14 @@ def _load_evo2_weights(num_players: int) -> tuple[list[float], Path]:
     defaults baked into ``Evo2AI``; we flatten those into a 19-element
     vector and return a sentinel path so the caller can log "defaults".
     """
-    candidates = [
-        Path(f"artifacts/best_weights_evo2_vs_old_evo2_{num_players}p.json"),
-        Path(f"artifacts/best_weights_evo2_vs_old_{num_players}p.json"),
-        Path(f"artifacts/best_weights_evo2_self_{num_players}p.json"),
-        Path(f"artifacts/best_weights_evo2_{num_players}p.json"),
-        Path("artifacts/best_weights_evo2.json"),
+    filenames = [
+        f"best_weights_evo2_vs_old_evo2_{num_players}p.json",
+        f"best_weights_evo2_vs_old_{num_players}p.json",
+        f"best_weights_evo2_self_{num_players}p.json",
+        f"best_weights_evo2_{num_players}p.json",
+        "best_weights_evo2.json",
     ]
+    candidates = [Path(d) / f for f in filenames for d in ("artifacts", "saved_best_weights")]
     for path in candidates:
         if path.exists():
             data = json.loads(path.read_text())

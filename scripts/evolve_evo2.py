@@ -187,10 +187,11 @@ def _load_old_evo_weights(num_players: int) -> list[float]:
     ``best_weights.json`` so the script still works on older artifact
     layouts. Errors loudly if neither exists.
     """
-    candidates = [
-        Path(f"artifacts/best_weights_{num_players}p.json"),
-        Path("artifacts/best_weights.json"),
+    filenames = [
+        f"best_weights_{num_players}p.json",
+        "best_weights.json",
     ]
+    candidates = [Path(d) / f for f in filenames for d in ("artifacts", "saved_best_weights")]
     for path in candidates:
         if path.exists():
             data = json.loads(path.read_text())
@@ -224,12 +225,13 @@ def _load_old_evo2_weights(num_players: int) -> tuple[list[float], Path]:
     iterative refinement, copy the new file over a higher-priority
     name yourself.
     """
-    candidates = [
-        Path(f"artifacts/best_weights_evo2_vs_old_{num_players}p.json"),
-        Path(f"artifacts/best_weights_evo2_self_{num_players}p.json"),
-        Path(f"artifacts/best_weights_evo2_{num_players}p.json"),
-        Path("artifacts/best_weights_evo2.json"),
+    filenames = [
+        f"best_weights_evo2_vs_old_{num_players}p.json",
+        f"best_weights_evo2_self_{num_players}p.json",
+        f"best_weights_evo2_{num_players}p.json",
+        "best_weights_evo2.json",
     ]
+    candidates = [Path(d) / f for f in filenames for d in ("artifacts", "saved_best_weights")]
     for path in candidates:
         if path.exists():
             data = json.loads(path.read_text())

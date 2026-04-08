@@ -45,12 +45,22 @@ SEED_START = 200       # held out: GA trained on 0..9
 GAMES_PER_CHART = 200  # 1000 games per cell (5 charts × 200 seeds)
 
 
-def _try_load(*candidates: str) -> list[float] | None:
-    """Return the weights from the first existing candidate path, else None."""
-    for candidate in candidates:
-        path = Path(candidate)
-        if path.exists():
-            return json.loads(path.read_text())["weights"]
+# Weights are looked up in `artifacts/` first (fresh GA runs, gitignored),
+# then `saved_best_weights/` (checked-in snapshots).
+_WEIGHTS_DIRS: tuple[str, ...] = ("artifacts", "saved_best_weights")
+
+
+def _try_load(*filenames: str) -> list[float] | None:
+    """Return the weights from the first existing candidate path, else None.
+
+    Each filename is searched in every directory in ``_WEIGHTS_DIRS``,
+    in priority order. The first file that exists wins.
+    """
+    for filename in filenames:
+        for d in _WEIGHTS_DIRS:
+            path = Path(d) / filename
+            if path.exists():
+                return json.loads(path.read_text())["weights"]
     return None
 
 
@@ -63,8 +73,8 @@ def _load_evolved() -> list[float] | None:
     the cell for the old evolved AI is simply omitted.
     """
     return _try_load(
-        "artifacts/best_weights_4p.json",
-        "artifacts/best_weights.json",
+        "best_weights_4p.json",
+        "best_weights.json",
     )
 
 
@@ -87,11 +97,11 @@ def make_factories() -> dict:
     # so the column is always present in the heatmap — otherwise a fresh
     # clone without an Evo2 GA run would drop the most interesting row.
     evo2 = _try_load(
-        "artifacts/best_weights_evo2_vs_old_evo2_4p.json",
-        "artifacts/best_weights_evo2_vs_old_4p.json",
-        "artifacts/best_weights_evo2_self_4p.json",
-        "artifacts/best_weights_evo2_4p.json",
-        "artifacts/best_weights_evo2.json",
+        "best_weights_evo2_vs_old_evo2_4p.json",
+        "best_weights_evo2_vs_old_4p.json",
+        "best_weights_evo2_self_4p.json",
+        "best_weights_evo2_4p.json",
+        "best_weights_evo2.json",
     )
     if evo2 is not None:
         factories["Evo2"] = lambda name, seed: Evo2AI.from_weights(name, evo2, seed=seed)
@@ -102,11 +112,11 @@ def make_factories() -> dict:
     # script (comparing Evo3's opponent-pricing head vs everything else)
     # is visible even on a fresh checkout.
     evo3 = _try_load(
-        "artifacts/best_weights_evo3_vs_all_4p.json",
-        "artifacts/best_weights_evo3_vs_evo2_4p.json",
-        "artifacts/best_weights_evo3_self_4p.json",
-        "artifacts/best_weights_evo3_4p.json",
-        "artifacts/best_weights_evo3.json",
+        "best_weights_evo3_vs_all_4p.json",
+        "best_weights_evo3_vs_evo2_4p.json",
+        "best_weights_evo3_self_4p.json",
+        "best_weights_evo3_4p.json",
+        "best_weights_evo3.json",
     )
     if evo3 is not None:
         factories["Evo3"] = lambda name, seed: Evo3AI.from_weights(name, evo3, seed=seed)
