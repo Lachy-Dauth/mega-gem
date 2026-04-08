@@ -45,22 +45,19 @@ SEED_START = 200       # held out: GA trained on 0..9
 GAMES_PER_CHART = 200  # 1000 games per cell (5 charts × 200 seeds)
 
 
-# Weights are looked up in `artifacts/` first (fresh GA runs, gitignored),
-# then `saved_best_weights/` (checked-in snapshots).
-_WEIGHTS_DIRS: tuple[str, ...] = ("artifacts", "saved_best_weights")
+# Weights are looked up ONLY in `saved_best_weights/` (checked-in
+# snapshots). `artifacts/` holds intermediate GA output that may not
+# reflect the canonical "best ever" — promote a fresh run by copying
+# its weights file into `saved_best_weights/`.
+_WEIGHTS_DIR = Path("saved_best_weights")
 
 
 def _try_load(*filenames: str) -> list[float] | None:
-    """Return the weights from the first existing candidate path, else None.
-
-    Each filename is searched in every directory in ``_WEIGHTS_DIRS``,
-    in priority order. The first file that exists wins.
-    """
+    """Return the weights from the first existing candidate path, else None."""
     for filename in filenames:
-        for d in _WEIGHTS_DIRS:
-            path = Path(d) / filename
-            if path.exists():
-                return json.loads(path.read_text())["weights"]
+        path = _WEIGHTS_DIR / filename
+        if path.exists():
+            return json.loads(path.read_text())["weights"]
     return None
 
 

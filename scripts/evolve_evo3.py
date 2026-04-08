@@ -212,14 +212,13 @@ def _load_evo2_weights(num_players: int) -> tuple[list[float], Path]:
     defaults baked into ``Evo2AI``; we flatten those into a 19-element
     vector and return a sentinel path so the caller can log "defaults".
     """
-    filenames = [
-        f"best_weights_evo2_vs_old_evo2_{num_players}p.json",
-        f"best_weights_evo2_vs_old_{num_players}p.json",
-        f"best_weights_evo2_self_{num_players}p.json",
-        f"best_weights_evo2_{num_players}p.json",
-        "best_weights_evo2.json",
+    candidates = [
+        Path("saved_best_weights") / f"best_weights_evo2_vs_old_evo2_{num_players}p.json",
+        Path("saved_best_weights") / f"best_weights_evo2_vs_old_{num_players}p.json",
+        Path("saved_best_weights") / f"best_weights_evo2_self_{num_players}p.json",
+        Path("saved_best_weights") / f"best_weights_evo2_{num_players}p.json",
+        Path("saved_best_weights") / "best_weights_evo2.json",
     ]
-    candidates = [Path(d) / f for f in filenames for d in ("artifacts", "saved_best_weights")]
     for path in candidates:
         if path.exists():
             data = json.loads(path.read_text())
@@ -749,8 +748,8 @@ def main() -> None:
             "all six previous bots (Random, Heuristic, Adaptive, Hyper, "
             "HyperAdapt, Evo2) — takes 6× longer than single-opponent "
             "modes but avoids overfit. 'vs_evo2' uses fixed Evo2AI "
-            "loaded from artifacts/best_weights_evo2_* (lookup chain "
-            "matches `--ai evo2`); 'self_play' samples from the current "
+            "loaded from saved_best_weights/ (lookup chain matches "
+            "`--ai evo2`); 'self_play' samples from the current "
             "population each generation."
         ),
     )

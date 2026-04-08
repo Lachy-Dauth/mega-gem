@@ -32,25 +32,26 @@ from .players import (
 AIFactory = Callable[..., Player]
 
 
-# Weights are looked up in `artifacts/` first (where fresh GA runs land — the
-# directory is gitignored), then `saved_best_weights/` (checked-in snapshots
-# so fresh clones can play against trained AIs without running the GA).
-_WEIGHTS_DIRS: tuple[str, ...] = ("artifacts", "saved_best_weights")
+# Weights are loaded ONLY from `saved_best_weights/` (checked-in
+# snapshots). `artifacts/` is transient GA output — promote a fresh
+# run by copying its weights file into `saved_best_weights/` yourself.
+_WEIGHTS_DIR = Path("saved_best_weights")
 
 
 def _expand_weight_candidates(filenames: list[str]) -> list[Path]:
-    """Return every filename joined with every weights dir, in priority order."""
-    return [Path(d) / f for f in filenames for d in _WEIGHTS_DIRS]
+    """Return each filename joined with the canonical weights dir."""
+    return [_WEIGHTS_DIR / f for f in filenames]
 
 
 def _evolved_factory(name: str, *, seed: int, num_players: int) -> Player:
     """Build a HyperAdaptiveSplitAI with GA-evolved weights for this seat count.
 
-    Looks for ``best_weights_{N}p.json`` first (per-player-count files
-    written by ``scripts/evolve_hyper_adaptive.py``), then falls back to
-    the un-suffixed ``best_weights.json``. Each filename is tried in
-    ``artifacts/`` then ``saved_best_weights/``. Raises if nothing
-    exists so the user gets a clear error instead of a silent default.
+    Looks for ``saved_best_weights/best_weights_{N}p.json`` first
+    (per-player-count files written by
+    ``scripts/evolve_hyper_adaptive.py`` and promoted by hand), then
+    falls back to the un-suffixed ``best_weights.json``. Raises if
+    nothing exists so the user gets a clear error instead of a silent
+    default.
     """
     candidates = _expand_weight_candidates([
         f"best_weights_{num_players}p.json",
@@ -61,16 +62,17 @@ def _evolved_factory(name: str, *, seed: int, num_players: int) -> Player:
             data = json.loads(path.read_text())
             return HyperAdaptiveSplitAI.from_weights(name, data["weights"], seed=seed)
     raise SystemExit(
-        "No evolved weights found in artifacts/ or saved_best_weights/. Run "
-        "`python -m scripts.evolve_hyper_adaptive` first."
+        "No evolved weights found in saved_best_weights/. Run "
+        "`python -m scripts.evolve_hyper_adaptive` and copy "
+        "artifacts/best_weights_*.json into saved_best_weights/."
     )
 
 
 def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
     """Build an Evo3AI with GA-evolved weights for this seat count.
 
-    Lookup order (first match wins), each filename checked in
-    ``artifacts/`` then ``saved_best_weights/``:
+    Lookup order (first match wins), all paths rooted in
+    ``saved_best_weights/``:
 
     1. ``best_weights_evo3_vs_all_{N}p.json`` — trained with the
        fitness averaged across all six previous bots. Top priority:
@@ -98,9 +100,9 @@ def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
             data = json.loads(path.read_text())
             return Evo3AI.from_weights(name, data["weights"], seed=seed)
     print(
-        "warning: no evo3 weights in artifacts/ or saved_best_weights/ — "
-        "using class defaults. Run `python -m scripts.evolve_evo3` for "
-        "evolved weights.",
+        "warning: no evo3 weights in saved_best_weights/ — using class "
+        "defaults. Run `python -m scripts.evolve_evo3` and copy the "
+        "result into saved_best_weights/ for evolved weights.",
         file=sys.stderr,
     )
     return Evo3AI(name, seed=seed)
@@ -109,8 +111,8 @@ def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
 def _evo2_factory(name: str, *, seed: int, num_players: int) -> Player:
     """Build an Evo2AI with GA-evolved weights for this seat count.
 
-    Lookup order (first match wins), each filename checked in
-    ``artifacts/`` then ``saved_best_weights/``:
+    Lookup order (first match wins), all paths rooted in
+    ``saved_best_weights/``:
 
     1. ``best_weights_evo2_vs_old_evo2_{N}p.json`` — trained against
        an earlier Evo2AI snapshot. Top priority because this is a
@@ -138,9 +140,9 @@ def _evo2_factory(name: str, *, seed: int, num_players: int) -> Player:
             data = json.loads(path.read_text())
             return Evo2AI.from_weights(name, data["weights"], seed=seed)
     print(
-        "warning: no evo2 weights in artifacts/ or saved_best_weights/ — "
-        "using class defaults. Run `python -m scripts.evolve_evo2` for "
-        "evolved weights.",
+        "warning: no evo2 weights in saved_best_weights/ — using class "
+        "defaults. Run `python -m scripts.evolve_evo2` and copy the "
+        "result into saved_best_weights/ for evolved weights.",
         file=sys.stderr,
     )
     return Evo2AI(name, seed=seed)

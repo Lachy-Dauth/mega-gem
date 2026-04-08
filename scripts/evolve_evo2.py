@@ -26,9 +26,10 @@ Three opponent modes:
 
 2. **``--opponent old_evo``.** Opponents are fixed: ``num_players − 1``
    instances of ``HyperAdaptiveSplitAI`` loaded from
-   ``artifacts/best_weights_{N}p.json``. Use this to evolve a
-   challenger that *specifically* beats the pre-Evo2 champion. Errors
-   if the old-evo weights file for the chosen seat count doesn't exist.
+   ``saved_best_weights/best_weights_{N}p.json``. Use this to evolve
+   a challenger that *specifically* beats the pre-Evo2 champion.
+   Errors if the old-evo weights file for the chosen seat count
+   doesn't exist.
 
 3. **``--opponent old_evo2``.** Opponents are fixed: ``num_players − 1``
    instances of ``Evo2AI`` loaded from the existing best Evo2 weights
@@ -187,11 +188,10 @@ def _load_old_evo_weights(num_players: int) -> list[float]:
     ``best_weights.json`` so the script still works on older artifact
     layouts. Errors loudly if neither exists.
     """
-    filenames = [
-        f"best_weights_{num_players}p.json",
-        "best_weights.json",
+    candidates = [
+        Path("saved_best_weights") / f"best_weights_{num_players}p.json",
+        Path("saved_best_weights") / "best_weights.json",
     ]
-    candidates = [Path(d) / f for f in filenames for d in ("artifacts", "saved_best_weights")]
     for path in candidates:
         if path.exists():
             data = json.loads(path.read_text())
@@ -204,8 +204,9 @@ def _load_old_evo_weights(num_players: int) -> list[float]:
             return weights
     raise SystemExit(
         f"Old-evo opponent requested but no weights file found. Run "
-        f"`python -m scripts.evolve_hyper_adaptive` first to produce "
-        f"artifacts/best_weights_{num_players}p.json."
+        f"`python -m scripts.evolve_hyper_adaptive` and copy "
+        f"artifacts/best_weights_{num_players}p.json into "
+        f"saved_best_weights/."
     )
 
 
@@ -225,13 +226,12 @@ def _load_old_evo2_weights(num_players: int) -> tuple[list[float], Path]:
     iterative refinement, copy the new file over a higher-priority
     name yourself.
     """
-    filenames = [
-        f"best_weights_evo2_vs_old_{num_players}p.json",
-        f"best_weights_evo2_self_{num_players}p.json",
-        f"best_weights_evo2_{num_players}p.json",
-        "best_weights_evo2.json",
+    candidates = [
+        Path("saved_best_weights") / f"best_weights_evo2_vs_old_{num_players}p.json",
+        Path("saved_best_weights") / f"best_weights_evo2_self_{num_players}p.json",
+        Path("saved_best_weights") / f"best_weights_evo2_{num_players}p.json",
+        Path("saved_best_weights") / "best_weights_evo2.json",
     ]
-    candidates = [Path(d) / f for f in filenames for d in ("artifacts", "saved_best_weights")]
     for path in candidates:
         if path.exists():
             data = json.loads(path.read_text())
@@ -243,9 +243,10 @@ def _load_old_evo2_weights(num_players: int) -> tuple[list[float], Path]:
                 )
             return weights, path
     raise SystemExit(
-        "Old-evo2 opponent requested but no Evo2 weights file found. "
-        "Run `python -m scripts.evolve_evo2` (default self-play mode) "
-        f"first to produce artifacts/best_weights_evo2_self_{num_players}p.json."
+        "Old-evo2 opponent requested but no Evo2 weights file found in "
+        "saved_best_weights/. Run `python -m scripts.evolve_evo2` "
+        "(default self-play mode) and copy the result into "
+        "saved_best_weights/ first."
     )
 
 
@@ -675,10 +676,9 @@ def main() -> None:
         help=(
             "Opponent source. 'self_play' samples from the current "
             "population each generation; 'old_evo' uses fixed "
-            "HyperAdaptiveSplitAI loaded from artifacts/best_weights*; "
+            "HyperAdaptiveSplitAI loaded from saved_best_weights/; "
             "'old_evo2' uses fixed Evo2AI loaded from "
-            "artifacts/best_weights_evo2_* (lookup chain matches "
-            "`--ai evo2`)."
+            "saved_best_weights/ (lookup chain matches `--ai evo2`)."
         ),
     )
     parser.add_argument(
