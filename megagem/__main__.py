@@ -15,6 +15,7 @@ from .explain import ExplainingPlayer, render_round_rationales
 from .players import (
     AdaptiveHeuristicAI,
     Evo2AI,
+    Evo3AI,
     HeuristicAI,
     HumanPlayer,
     HyperAdaptiveAI,
@@ -51,6 +52,40 @@ def _evolved_factory(name: str, *, seed: int, num_players: int) -> Player:
         "No evolved weights found in artifacts/. Run "
         "`python -m scripts.evolve_hyper_adaptive` first."
     )
+
+
+def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
+    """Build an Evo3AI with GA-evolved weights for this seat count.
+
+    Lookup order (first match wins):
+
+    1. ``artifacts/best_weights_evo3_vs_evo2_{N}p.json`` — trained
+       against a frozen Evo2 snapshot. Top priority: that is the
+       training regime ``scripts/evolve_evo3.py`` uses by default.
+    2. ``artifacts/best_weights_evo3_self_{N}p.json`` — self-play.
+    3. ``artifacts/best_weights_evo3_{N}p.json`` — legacy un-tagged.
+    4. ``artifacts/best_weights_evo3.json`` — global fallback.
+
+    If none exist, falls back to ``Evo3AI``'s class defaults with a
+    one-time stderr warning so ``--ai evo3`` still works without
+    running the GA.
+    """
+    candidates = [
+        Path(f"artifacts/best_weights_evo3_vs_evo2_{num_players}p.json"),
+        Path(f"artifacts/best_weights_evo3_self_{num_players}p.json"),
+        Path(f"artifacts/best_weights_evo3_{num_players}p.json"),
+        Path("artifacts/best_weights_evo3.json"),
+    ]
+    for path in candidates:
+        if path.exists():
+            data = json.loads(path.read_text())
+            return Evo3AI.from_weights(name, data["weights"], seed=seed)
+    print(
+        "warning: no evo3 weights in artifacts/ — using class defaults. "
+        "Run `python -m scripts.evolve_evo3` for evolved weights.",
+        file=sys.stderr,
+    )
+    return Evo3AI(name, seed=seed)
 
 
 def _evo2_factory(name: str, *, seed: int, num_players: int) -> Player:
@@ -99,6 +134,7 @@ AI_FACTORIES: dict[str, AIFactory] = {
     "hyper_adapt": lambda name, *, seed, num_players: HyperAdaptiveAI(name, seed=seed),
     "evolved":    _evolved_factory,
     "evo2":       _evo2_factory,
+    "evo3":       _evo3_factory,
 }
 
 

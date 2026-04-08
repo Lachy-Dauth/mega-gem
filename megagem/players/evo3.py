@@ -1,0 +1,570 @@
+"""Evo3AI — Evo2 with opponent-pricing awareness.
+
+Identical to :class:`Evo2AI` except that each head gains two new features:
+
+* ``mean_delta`` — weighted mean of ``max(opponent bids) − my bid`` over
+  the rounds this AI has already played.
+* ``std_delta``  — weighted standard deviation of the same quantity.
+
+The "weighted" bit: when computing the features for a given head (e.g. the
+treasure head on a treasure auction), observations from the matching
+category are counted with weight 4 and observations from other categories
+with weight 1. The rationale is that loan bidding tells you less about
+how opponents price treasures than previous treasures do — 4× was the
+weighting the user specified.
+
+On the first call the history is empty, so the defaults ``(0.0, 1.0)``
+are used. After each round resolves, the engine calls
+:meth:`Evo3AI.observe_round` with the full bid list, and the AI appends
+``(category, max_opp_bid − my_bid)`` to its history.
+
+Weight layout (flat 25-element vector, the form the GA produces):
+
+    treasure (9): bias, w_rounds, w_my, w_avg, w_top, w_ev, w_std,
+                  w_mean_delta, w_std_delta
+    invest   (8): bias, w_rounds, w_my, w_avg, w_top, w_amount,
+                  w_mean_delta, w_std_delta
+    loan     (8): bias, w_rounds, w_my, w_avg, w_top, w_amount,
+                  w_mean_delta, w_std_delta
+
+Seed defaults are the Evo2 defaults with zeros for the two new weights,
+so a freshly constructed Evo3AI with the class defaults reproduces Evo2
+behaviour exactly when the history is empty — and starts drifting once
+enough rounds have been observed.
+"""
+
+from __future__ import annotations
+
+import math
+import random
+from typing import TYPE_CHECKING
+
+from ..cards import (
+    AuctionCard,
+    GemCard,
+    InvestCard,
+    LoanCard,
+    TreasureCard,
+)
+from ..engine import max_legal_bid
+from .base import Player
+from .evo2 import (
+    _compute_evo2_features,
+    _Evo2Features,
+    _treasure_value_stats,
+)
+
+if TYPE_CHECKING:
+    from ..state import GameState, PlayerState
+
+
+# Category tags for the opponent-history log. Kept as short strings so
+# the history list is cheap to pickle / inspect from tests.
+_CAT_TREASURE = "treasure"
+_CAT_INVEST = "invest"
+_CAT_LOAN = "loan"
+
+# Matching-category weight multiplier. The user's spec: 4× for the
+# current category, 1× for the others.
+_MATCH_WEIGHT = 4.0
+_OTHER_WEIGHT = 1.0
+
+# Defaults when there's no history yet.
+_DEFAULT_MEAN_DELTA = 0.0
+_DEFAULT_STD_DELTA = 1.0
+
+
+def _category_of(auction: AuctionCard) -> str | None:
+    if isinstance(auction, TreasureCard):
+        return _CAT_TREASURE
+    if isinstance(auction, InvestCard):
+        return _CAT_INVEST
+    if isinstance(auction, LoanCard):
+        return _CAT_LOAN
+    return None
+
+
+def _weighted_delta_stats(
+    history: list[tuple[str, float]],
+    current_category: str,
+) -> tuple[float, float]:
+    """Weighted mean and std of the opponent-delta history.
+
+    Observations whose category matches ``current_category`` are counted
+    with weight ``_MATCH_WEIGHT``; all others with ``_OTHER_WEIGHT``.
+    Returns ``(_DEFAULT_MEAN_DELTA, _DEFAULT_STD_DELTA)`` when the
+    history is empty — the spec's "first go" defaults.
+    """
+    if not history:
+        return _DEFAULT_MEAN_DELTA, _DEFAULT_STD_DELTA
+
+    total_w = 0.0
+    total_x = 0.0
+    total_x2 = 0.0
+    for cat, delta in history:
+        w = _MATCH_WEIGHT if cat == current_category else _OTHER_WEIGHT
+        total_w += w
+        total_x += w * delta
+        total_x2 += w * delta * delta
+
+    if total_w <= 0.0:
+        return _DEFAULT_MEAN_DELTA, _DEFAULT_STD_DELTA
+
+    mean = total_x / total_w
+    var = max(0.0, total_x2 / total_w - mean * mean)
+    return mean, math.sqrt(var)
+
+
+# ---------------------------------------------------------------------------
+# Linear bid models. Sibling classes to the Evo2 ones; each gains a
+# ``w_mean_delta`` / ``w_std_delta`` weight pair and a 2-extra-arg ``bid``.
+# ---------------------------------------------------------------------------
+
+
+class _Evo3TreasureModel:
+    """1 bias + 4 shared + 2 EV/std + 2 opponent-delta = 9 weights."""
+
+    __slots__ = (
+        "bias",
+        "w_rounds",
+        "w_my",
+        "w_avg",
+        "w_top",
+        "w_ev",
+        "w_std",
+        "w_mean_delta",
+        "w_std_delta",
+    )
+
+    def __init__(
+        self,
+        bias: float,
+        w_rounds: float,
+        w_my: float,
+        w_avg: float,
+        w_top: float,
+        w_ev: float,
+        w_std: float,
+        w_mean_delta: float,
+        w_std_delta: float,
+    ) -> None:
+        self.bias = bias
+        self.w_rounds = w_rounds
+        self.w_my = w_my
+        self.w_avg = w_avg
+        self.w_top = w_top
+        self.w_ev = w_ev
+        self.w_std = w_std
+        self.w_mean_delta = w_mean_delta
+        self.w_std_delta = w_std_delta
+
+    def bid(
+        self,
+        f: _Evo2Features,
+        ev: float,
+        std: float,
+        mean_delta: float,
+        std_delta: float,
+    ) -> float:
+        return (
+            self.bias
+            + self.w_rounds * f.rounds_remaining
+            + self.w_my * f.my_coins
+            + self.w_avg * f.avg_opp_coins
+            + self.w_top * f.top_opp_coins
+            + self.w_ev * ev
+            + self.w_std * std
+            + self.w_mean_delta * mean_delta
+            + self.w_std_delta * std_delta
+        )
+
+
+class _Evo3InvestModel:
+    """1 bias + 4 shared + 1 amount + 2 opponent-delta = 8 weights."""
+
+    __slots__ = (
+        "bias",
+        "w_rounds",
+        "w_my",
+        "w_avg",
+        "w_top",
+        "w_amount",
+        "w_mean_delta",
+        "w_std_delta",
+    )
+
+    def __init__(
+        self,
+        bias: float,
+        w_rounds: float,
+        w_my: float,
+        w_avg: float,
+        w_top: float,
+        w_amount: float,
+        w_mean_delta: float,
+        w_std_delta: float,
+    ) -> None:
+        self.bias = bias
+        self.w_rounds = w_rounds
+        self.w_my = w_my
+        self.w_avg = w_avg
+        self.w_top = w_top
+        self.w_amount = w_amount
+        self.w_mean_delta = w_mean_delta
+        self.w_std_delta = w_std_delta
+
+    def bid(
+        self,
+        f: _Evo2Features,
+        amount: int,
+        mean_delta: float,
+        std_delta: float,
+    ) -> float:
+        return (
+            self.bias
+            + self.w_rounds * f.rounds_remaining
+            + self.w_my * f.my_coins
+            + self.w_avg * f.avg_opp_coins
+            + self.w_top * f.top_opp_coins
+            + self.w_amount * amount
+            + self.w_mean_delta * mean_delta
+            + self.w_std_delta * std_delta
+        )
+
+
+class _Evo3LoanModel:
+    """1 bias + 4 shared + 1 amount + 2 opponent-delta = 8 weights.
+
+    Structurally identical to :class:`_Evo3InvestModel` but kept as its
+    own class so flat-vector slicing in the GA is type-clear.
+    """
+
+    __slots__ = (
+        "bias",
+        "w_rounds",
+        "w_my",
+        "w_avg",
+        "w_top",
+        "w_amount",
+        "w_mean_delta",
+        "w_std_delta",
+    )
+
+    def __init__(
+        self,
+        bias: float,
+        w_rounds: float,
+        w_my: float,
+        w_avg: float,
+        w_top: float,
+        w_amount: float,
+        w_mean_delta: float,
+        w_std_delta: float,
+    ) -> None:
+        self.bias = bias
+        self.w_rounds = w_rounds
+        self.w_my = w_my
+        self.w_avg = w_avg
+        self.w_top = w_top
+        self.w_amount = w_amount
+        self.w_mean_delta = w_mean_delta
+        self.w_std_delta = w_std_delta
+
+    def bid(
+        self,
+        f: _Evo2Features,
+        amount: int,
+        mean_delta: float,
+        std_delta: float,
+    ) -> float:
+        return (
+            self.bias
+            + self.w_rounds * f.rounds_remaining
+            + self.w_my * f.my_coins
+            + self.w_avg * f.avg_opp_coins
+            + self.w_top * f.top_opp_coins
+            + self.w_amount * amount
+            + self.w_mean_delta * mean_delta
+            + self.w_std_delta * std_delta
+        )
+
+
+# ---------------------------------------------------------------------------
+# Evo3AI itself.
+# ---------------------------------------------------------------------------
+
+
+class Evo3AI(Player):
+    """Evo2 with opponent-pricing awareness.
+
+    Per-round lifecycle:
+
+    1. ``choose_bid`` reads the current opponent-delta history, computes
+       weighted ``(mean_delta, std_delta)`` for the auction's category,
+       feeds them into the active head alongside the Evo2 features, and
+       returns ``int(bid)`` clamped to ``[0, cap]``.
+    2. After all players have bid and the engine has resolved the round,
+       the engine calls :meth:`observe_round`. Evo3 pulls its own bid
+       out of ``result["bids"][my_idx]``, computes the max opponent bid,
+       and appends ``(category, max_opp − my_bid)`` to ``_opp_history``.
+
+    The history persists for the lifetime of the player instance, so
+    across-game persistence is *not* provided — each game starts fresh.
+    """
+
+    NUM_WEIGHTS = 25  # 9 (treasure) + 8 (invest) + 8 (loan)
+
+    # Seeded from the Evo2 defaults with zeros for the two new weights
+    # on each head. A fresh Evo3AI with these defaults behaves exactly
+    # like the default Evo2AI when the opponent history is empty.
+    DEFAULT_TREASURE = _Evo3TreasureModel(
+        bias=0.9671062444221764,
+        w_rounds=-0.0906995616980441,
+        w_my=0.07804979550128198,
+        w_avg=0.05375147152736104,
+        w_top=-0.04247465810129918,
+        w_ev=0.32783828473034604,
+        w_std=-0.011838494331700117,
+        w_mean_delta=0.0,
+        w_std_delta=0.0,
+    )
+    DEFAULT_INVEST = _Evo3InvestModel(
+        bias=1.908464547879478,
+        w_rounds=0.4300303741599258,
+        w_my=-0.1201852409204779,
+        w_avg=-0.28421403664160627,
+        w_top=0.3149361220138405,
+        w_amount=0.07219353469220569,
+        w_mean_delta=0.0,
+        w_std_delta=0.0,
+    )
+    DEFAULT_LOAN = _Evo3LoanModel(
+        bias=-0.4139242208454687,
+        w_rounds=-0.31190499765072527,
+        w_my=0.13966251262722051,
+        w_avg=0.12135141558388368,
+        w_top=-0.0669196243751372,
+        w_amount=0.36349000133503273,
+        w_mean_delta=0.0,
+        w_std_delta=0.0,
+    )
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        treasure: _Evo3TreasureModel | None = None,
+        invest: _Evo3InvestModel | None = None,
+        loan: _Evo3LoanModel | None = None,
+        seed: int | None = None,
+    ) -> None:
+        super().__init__(name)
+        self._rng = random.Random(seed)
+        self.treasure_model = (
+            treasure if treasure is not None else self.DEFAULT_TREASURE
+        )
+        self.invest_model = (
+            invest if invest is not None else self.DEFAULT_INVEST
+        )
+        self.loan_model = loan if loan is not None else self.DEFAULT_LOAN
+        # Log of (category, max_opp_bid − my_bid) for every round this
+        # instance has observed. Grows by one entry per call to
+        # observe_round; the engine calls that once per round per player.
+        self._opp_history: list[tuple[str, float]] = []
+
+    @classmethod
+    def from_weights(
+        cls,
+        name: str,
+        weights: list[float],
+        *,
+        seed: int | None = None,
+    ) -> "Evo3AI":
+        """Build from a flat 25-element weights list.
+
+        Layout: ``[treasure(9), invest(8), loan(8)]``.
+        """
+        if len(weights) != cls.NUM_WEIGHTS:
+            raise ValueError(
+                f"Expected {cls.NUM_WEIGHTS} weights, got {len(weights)}"
+            )
+        return cls(
+            name,
+            treasure=_Evo3TreasureModel(*weights[0:9]),
+            invest=_Evo3InvestModel(*weights[9:17]),
+            loan=_Evo3LoanModel(*weights[17:25]),
+            seed=seed,
+        )
+
+    # ------------------------------------------------------------------
+    # Post-round observation: grow the opponent-delta history.
+    # ------------------------------------------------------------------
+    def observe_round(
+        self,
+        public_state: "GameState",
+        my_idx: int,
+        result: dict,
+    ) -> None:
+        auction = result.get("auction")
+        cat = _category_of(auction) if auction is not None else None
+        if cat is None:
+            return
+        bids = result.get("bids") or []
+        if my_idx < 0 or my_idx >= len(bids):
+            return
+        my_bid = bids[my_idx]
+        opp_bids = [b for i, b in enumerate(bids) if i != my_idx]
+        if not opp_bids:
+            return
+        max_opp = max(opp_bids)
+        self._opp_history.append((cat, float(max_opp - my_bid)))
+
+    # ------------------------------------------------------------------
+    # Bid selection.
+    # ------------------------------------------------------------------
+    def choose_bid(
+        self,
+        public_state: "GameState",
+        my_state: "PlayerState",
+        auction: AuctionCard,
+    ) -> int:
+        cap = max_legal_bid(my_state, auction)
+        if cap == 0:
+            return 0
+
+        f = _compute_evo2_features(public_state, my_state)
+
+        if isinstance(auction, TreasureCard):
+            ev, std = _treasure_value_stats(auction, public_state, my_state)
+            mean_delta, std_delta = _weighted_delta_stats(
+                self._opp_history, _CAT_TREASURE
+            )
+            raw = self.treasure_model.bid(
+                f, ev, std, mean_delta, std_delta
+            )
+            return max(0, min(int(raw), cap))
+
+        if isinstance(auction, InvestCard):
+            mean_delta, std_delta = _weighted_delta_stats(
+                self._opp_history, _CAT_INVEST
+            )
+            raw = self.invest_model.bid(
+                f, auction.amount, mean_delta, std_delta
+            )
+            bid = max(0, min(int(raw), cap))
+            # Free money — always grab a token bid if we can.
+            if bid == 0 and cap > 0:
+                bid = 1
+            return bid
+
+        if isinstance(auction, LoanCard):
+            mean_delta, std_delta = _weighted_delta_stats(
+                self._opp_history, _CAT_LOAN
+            )
+            raw = self.loan_model.bid(
+                f, auction.amount, mean_delta, std_delta
+            )
+            return max(0, min(int(raw), cap))
+
+        return 0
+
+    # ------------------------------------------------------------------
+    # Debug rationale.
+    # ------------------------------------------------------------------
+    def explain_bid(
+        self,
+        public_state: "GameState",
+        my_state: "PlayerState",
+        auction: AuctionCard,
+    ) -> list[str]:
+        f = _compute_evo2_features(public_state, my_state)
+        invest_amount = (
+            auction.amount if isinstance(auction, InvestCard) else 5
+        )
+        loan_amount = (
+            auction.amount if isinstance(auction, LoanCard) else 10
+        )
+        treasure_ev = 0.0
+        treasure_std = 0.0
+        if isinstance(auction, TreasureCard):
+            treasure_ev, treasure_std = _treasure_value_stats(
+                auction, public_state, my_state
+            )
+
+        t_md, t_sd = _weighted_delta_stats(self._opp_history, _CAT_TREASURE)
+        i_md, i_sd = _weighted_delta_stats(self._opp_history, _CAT_INVEST)
+        l_md, l_sd = _weighted_delta_stats(self._opp_history, _CAT_LOAN)
+
+        tb = self.treasure_model.bid(f, treasure_ev, treasure_std, t_md, t_sd)
+        ib = self.invest_model.bid(f, invest_amount, i_md, i_sd)
+        lb = self.loan_model.bid(f, loan_amount, l_md, l_sd)
+
+        kind = (
+            "treasure" if isinstance(auction, TreasureCard)
+            else "invest" if isinstance(auction, InvestCard)
+            else "loan" if isinstance(auction, LoanCard)
+            else None
+        )
+        marker = {
+            "treasure": ("◀", "  ", "  "),
+            "invest":   ("  ", "◀", "  "),
+            "loan":     ("  ", "  ", "◀"),
+        }.get(kind, ("  ", "  ", "  "))
+
+        lines = [
+            f"features:  rounds_left={f.rounds_remaining:.2f}  "
+            f"my_coins={f.my_coins:.0f}  avg_opp={f.avg_opp_coins:.1f}  "
+            f"top_opp={f.top_opp_coins:.0f}",
+            f"heads (raw bid):  treasure={tb:+.1f}{marker[0]}  "
+            f"invest={ib:+.1f}{marker[1]}  loan={lb:+.1f}{marker[2]}",
+            f"opp-delta (history={len(self._opp_history)}):  "
+            f"treasure=({t_md:+.1f},{t_sd:.1f})  "
+            f"invest=({i_md:+.1f},{i_sd:.1f})  "
+            f"loan=({l_md:+.1f},{l_sd:.1f})",
+        ]
+        if isinstance(auction, TreasureCard):
+            lines.append(
+                f"treasure:  ev={treasure_ev:.1f}  std={treasure_std:.2f}"
+            )
+        return lines
+
+    # ------------------------------------------------------------------
+    # Reveal policy — a direct copy of Evo2AI.choose_gem_to_reveal,
+    # which in turn copies HeuristicAI. Kept inline so this file has no
+    # behavioural dependency on the Evo2 reveal logic (even though it
+    # happens to be identical today).
+    # ------------------------------------------------------------------
+    def choose_gem_to_reveal(
+        self,
+        public_state: "GameState",
+        my_state: "PlayerState",
+    ) -> GemCard:
+        from collections import Counter
+
+        from ..value_charts import value_for
+
+        chart = public_state.value_chart
+        display = public_state.value_display
+
+        my_holding = my_state.collection_gems
+        opp_holding: Counter = Counter()
+        for ps in public_state.player_states:
+            if ps is my_state:
+                continue
+            opp_holding.update(ps.collection_gems)
+
+        best_score: tuple[int, int] | None = None
+        best_card: GemCard | None = None
+        for card in my_state.hand:
+            color = card.color
+            current = display.get(color, 0)
+            delta = value_for(chart, current + 1) - value_for(chart, current)
+            relative = my_holding.get(color, 0) - opp_holding.get(color, 0)
+            net_benefit = delta * relative
+            tiebreaker = -my_holding.get(color, 0)
+            score = (net_benefit, tiebreaker)
+            if best_score is None or score > best_score:
+                best_score = score
+                best_card = card
+
+        return best_card if best_card is not None else my_state.hand[0]

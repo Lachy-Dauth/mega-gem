@@ -227,7 +227,7 @@ def play_round(state: GameState, rng: random.Random | None = None) -> dict:
 
     state.last_winner_idx = winner_idx
 
-    return {
+    result = {
         "round": state.round_number,
         "auction": auction,
         "bids": raw_bids,
@@ -237,6 +237,15 @@ def play_round(state: GameState, rng: random.Random | None = None) -> dict:
         "revealed_gem": revealed_gem,
         "completed_missions": completed_missions,
     }
+
+    # Post-round observation hook. Default is a no-op on Player base,
+    # so this is free for AIs that don't care and lets opponent-pricing
+    # models (Evo3+) accumulate bid history without the engine needing
+    # any type-specific knowledge.
+    for idx, player in enumerate(state.players):
+        player.observe_round(state, idx, result)
+
+    return result
 
 
 # --- Scoring ----------------------------------------------------------------
