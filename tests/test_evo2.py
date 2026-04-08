@@ -24,11 +24,11 @@ from megagem.missions import (
     color_counts_at_least,
 )
 from megagem.players import (
+    Evo2AI,
     RandomAI,
     _hyper_expected_per_gem_value,
 )
-from megagem.players_evo2 import (
-    Evo2AI,
+from megagem.players.evo2 import (
     _IMPOSSIBLE_DISTANCE,
     _compute_evo2_features,
     _expected_rounds_remaining,

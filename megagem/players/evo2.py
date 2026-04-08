@@ -33,9 +33,6 @@ the gems on offer)" and "P(I win this mission | the highest-coin
 opponent takes them)", scaled by the mission's coin value. The two
 existing deterministic mission bonuses (hard completion + soft progress)
 are kept and the delta is added on top.
-
-This module deliberately lives outside ``players.py`` so the existing
-champion stays untouched for before/after benchmarks.
 """
 
 from __future__ import annotations
@@ -47,7 +44,7 @@ from functools import lru_cache
 from itertools import combinations_with_replacement
 from typing import TYPE_CHECKING
 
-from .cards import (
+from ..cards import (
     AuctionCard,
     Color,
     GemCard,
@@ -55,19 +52,19 @@ from .cards import (
     LoanCard,
     TreasureCard,
 )
-from .engine import max_legal_bid
-from .missions import MissionCard
-from .players import (
-    Player,
+from ..engine import max_legal_bid
+from ..missions import MissionCard
+from ..value_charts import value_for
+from .base import Player
+from .helpers import (
     _GEMS_PER_COLOR,
     _hyper_hidden_distribution,
     _mission_completion_bonus,
     _mission_progress_bonus,
 )
-from .value_charts import value_for
 
 if TYPE_CHECKING:
-    from .state import GameState, PlayerState
+    from ..state import GameState, PlayerState
 
 
 # Sentinel for "no multiset of size ≤ max_k satisfies this mission".
@@ -661,41 +658,38 @@ class Evo2AI(Player):
 
     NUM_WEIGHTS = 19  # 7 (treasure) + 6 (invest) + 6 (loan)
 
-    # Sane starting points so default-weights Evo2AI doesn't go 0/N before
-    # the GA touches it. The GA replaces these — these defaults are tuned
-    # only well enough to clear the >60% bar against 3× RandomAI in the
-    # smoke test, not for serious play.
+    # Defaults pulled from a self-play GA run
+    # (population=24, generation 0, fitness 0.405 vs 3× self-play opponents
+    # on charts A–E, 4 players). Used when no per-seat-count weights file
+    # exists in artifacts/ — ``_evo2_factory`` in ``megagem/__main__.py``
+    # falls back to these so ``--ai evo2`` works out of the box.
     #
     # All numbers are in *coin units of bid output*, since the heads now
-    # produce the bid directly. The treasure head couples the bid to
-    # ``my_coins`` (positive) and ``top_opp_coins`` (negative) so the AI
-    # naturally rations its purse — high coins ⇒ bid more, rich rival ⇒
-    # bid less. ``w_ev`` is the dominant signal: bid roughly the prize EV
-    # less a margin.
+    # produce the bid directly (no discount-fraction × EV scaling).
     DEFAULT_TREASURE = _TreasureModel(
-        bias=1.0,
-        w_rounds=0.0,
-        w_my=0.0,
-        w_avg=0.0,
-        w_top=-0.10,
-        w_ev=0.30,
-        w_std=-0.10,
+        bias=0.9671062444221764,
+        w_rounds=-0.0906995616980441,
+        w_my=0.07804979550128198,
+        w_avg=0.05375147152736104,
+        w_top=-0.04247465810129918,
+        w_ev=0.32783828473034604,
+        w_std=-0.011838494331700117,
     )
     DEFAULT_INVEST = _InvestModel(
-        bias=2.0,
-        w_rounds=0.0,
-        w_my=0.10,
-        w_avg=0.0,
-        w_top=0.0,
-        w_amount=0.30,
+        bias=1.908464547879478,
+        w_rounds=0.4300303741599258,
+        w_my=-0.1201852409204779,
+        w_avg=-0.28421403664160627,
+        w_top=0.3149361220138405,
+        w_amount=0.07219353469220569,
     )
     DEFAULT_LOAN = _LoanModel(
-        bias=0.0,
-        w_rounds=0.0,
-        w_my=-0.10,
-        w_avg=0.0,
-        w_top=0.0,
-        w_amount=0.20,
+        bias=-0.4139242208454687,
+        w_rounds=-0.31190499765072527,
+        w_my=0.13966251262722051,
+        w_avg=0.12135141558388368,
+        w_top=-0.0669196243751372,
+        w_amount=0.36349000133503273,
     )
 
     def __init__(

@@ -14,6 +14,7 @@ from .engine import is_game_over, play_round, score_game, setup_game
 from .explain import ExplainingPlayer, render_round_rationales
 from .players import (
     AdaptiveHeuristicAI,
+    Evo2AI,
     HeuristicAI,
     HumanPlayer,
     HyperAdaptiveAI,
@@ -22,7 +23,6 @@ from .players import (
     Player,
     RandomAI,
 )
-from .players_evo2 import Evo2AI
 
 
 # Factory signature: (name, *, seed, num_players) -> Player.
@@ -58,19 +58,22 @@ def _evo2_factory(name: str, *, seed: int, num_players: int) -> Player:
 
     Lookup order (first match wins):
 
-    1. ``artifacts/best_weights_evo2_vs_old_{N}p.json`` — trained against
-       the previous champion (HyperAdaptiveSplitAI). Preferred when present
-       since beating the old evo is the bar that matters for the heatmap.
-    2. ``artifacts/best_weights_evo2_self_{N}p.json`` — trained via
+    1. ``artifacts/best_weights_evo2_vs_old_evo2_{N}p.json`` — trained
+       against an earlier Evo2AI snapshot. Top priority because this is
+       a strict refinement of "best Evo2 we've ever produced".
+    2. ``artifacts/best_weights_evo2_vs_old_{N}p.json`` — trained against
+       the pre-Evo2 champion (HyperAdaptiveSplitAI).
+    3. ``artifacts/best_weights_evo2_self_{N}p.json`` — trained via
        self-play within the Evo2 population.
-    3. ``artifacts/best_weights_evo2_{N}p.json`` — legacy un-tagged path.
-    4. ``artifacts/best_weights_evo2.json`` — global fallback.
+    4. ``artifacts/best_weights_evo2_{N}p.json`` — legacy un-tagged path.
+    5. ``artifacts/best_weights_evo2.json`` — global fallback.
 
     If none exist, falls back to ``Evo2AI``'s class defaults with a
     one-time stderr warning so first-time users can play immediately
     without running the GA.
     """
     candidates = [
+        Path(f"artifacts/best_weights_evo2_vs_old_evo2_{num_players}p.json"),
         Path(f"artifacts/best_weights_evo2_vs_old_{num_players}p.json"),
         Path(f"artifacts/best_weights_evo2_self_{num_players}p.json"),
         Path(f"artifacts/best_weights_evo2_{num_players}p.json"),

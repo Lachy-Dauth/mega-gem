@@ -31,13 +31,13 @@ import numpy as np  # noqa: E402
 from megagem.engine import is_game_over, play_round, score_game, setup_game
 from megagem.players import (
     AdaptiveHeuristicAI,
+    Evo2AI,
     HeuristicAI,
     HyperAdaptiveAI,
     HyperAdaptiveSplitAI,
     HypergeometricAI,
     RandomAI,
 )
-from megagem.players_evo2 import Evo2AI
 
 CHARTS = "ABCDE"
 SEED_START = 200       # held out: GA trained on 0..9

@@ -13,6 +13,7 @@ value-estimation and discount-feature math lives in
 
 from .adaptive_heuristic import AdaptiveHeuristicAI
 from .base import Player
+from .evo2 import Evo2AI
 from .helpers import (
     _GEMS_PER_COLOR,
     _TOTAL_AUCTIONS,
@@ -45,6 +46,7 @@ from .random_ai import RandomAI
 
 __all__ = [
     "AdaptiveHeuristicAI",
+    "Evo2AI",
     "HeuristicAI",
     "HumanPlayer",
     "HyperAdaptiveAI",
