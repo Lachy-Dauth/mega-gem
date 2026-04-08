@@ -22,6 +22,7 @@ from .players import (
     Player,
     RandomAI,
 )
+from .players_evo2 import Evo2AI
 
 
 # Factory signature: (name, *, seed, num_players) -> Player.
@@ -52,6 +53,41 @@ def _evolved_factory(name: str, *, seed: int, num_players: int) -> Player:
     )
 
 
+def _evo2_factory(name: str, *, seed: int, num_players: int) -> Player:
+    """Build an Evo2AI with GA-evolved weights for this seat count.
+
+    Lookup order (first match wins):
+
+    1. ``artifacts/best_weights_evo2_vs_old_{N}p.json`` — trained against
+       the previous champion (HyperAdaptiveSplitAI). Preferred when present
+       since beating the old evo is the bar that matters for the heatmap.
+    2. ``artifacts/best_weights_evo2_self_{N}p.json`` — trained via
+       self-play within the Evo2 population.
+    3. ``artifacts/best_weights_evo2_{N}p.json`` — legacy un-tagged path.
+    4. ``artifacts/best_weights_evo2.json`` — global fallback.
+
+    If none exist, falls back to ``Evo2AI``'s class defaults with a
+    one-time stderr warning so first-time users can play immediately
+    without running the GA.
+    """
+    candidates = [
+        Path(f"artifacts/best_weights_evo2_vs_old_{num_players}p.json"),
+        Path(f"artifacts/best_weights_evo2_self_{num_players}p.json"),
+        Path(f"artifacts/best_weights_evo2_{num_players}p.json"),
+        Path("artifacts/best_weights_evo2.json"),
+    ]
+    for path in candidates:
+        if path.exists():
+            data = json.loads(path.read_text())
+            return Evo2AI.from_weights(name, data["weights"], seed=seed)
+    print(
+        "warning: no evo2 weights in artifacts/ — using class defaults. "
+        "Run `python -m scripts.evolve_evo2` for evolved weights.",
+        file=sys.stderr,
+    )
+    return Evo2AI(name, seed=seed)
+
+
 AI_FACTORIES: dict[str, AIFactory] = {
     "random":     lambda name, *, seed, num_players: RandomAI(name, seed=seed),
     "heuristic":  lambda name, *, seed, num_players: HeuristicAI(name, seed=seed),
@@ -59,6 +95,7 @@ AI_FACTORIES: dict[str, AIFactory] = {
     "hyper":      lambda name, *, seed, num_players: HypergeometricAI(name, seed=seed),
     "hyper_adapt": lambda name, *, seed, num_players: HyperAdaptiveAI(name, seed=seed),
     "evolved":    _evolved_factory,
+    "evo2":       _evo2_factory,
 }
 
 

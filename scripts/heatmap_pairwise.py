@@ -2,8 +2,14 @@
 
 Each cell M[row, col] is the win rate of one ``row`` AI seated against
 three copies of ``col``, averaged across all five value charts on a
-fixed seed range. Held out from the GA's training seeds (0..9) so
-EvolvedSplit's numbers reflect generalisation, not memorisation.
+fixed seed range. The seed range starts at ``SEED_START`` and is held
+out from every GA's training seeds (0..9 for the old GA, rotating
+seeds based on ``(seed + gen) * 9973`` for the evo2 GA), so the
+numbers reflect generalisation rather than memorisation.
+
+The matrix runs 4-player games (1 challenger + 3 opponents), so we
+load every evolved AI's *4-player* weights file in preference to
+unsuffixed legacy files.
 
 Run::
 
@@ -31,25 +37,46 @@ from megagem.players import (
     HypergeometricAI,
     RandomAI,
 )
+from megagem.players_evo2 import Evo2AI
 
 CHARTS = "ABCDE"
 SEED_START = 200       # held out: GA trained on 0..9
-GAMES_PER_CHART = 200   # 100 games per cell
+GAMES_PER_CHART = 200  # 1000 games per cell (5 charts × 200 seeds)
+
+
+def _try_load(*candidates: str) -> list[float] | None:
+    """Return the weights from the first existing candidate path, else None."""
+    for candidate in candidates:
+        path = Path(candidate)
+        if path.exists():
+            return json.loads(path.read_text())["weights"]
+    return None
 
 
 def _load_evolved() -> list[float]:
-    path = Path("artifacts/best_weights.json")
-    if not path.exists():
+    """Load HyperAdaptiveSplitAI 4-player weights.
+
+    Prefers ``best_weights_4p.json`` (per-seat-count) over the legacy
+    unsuffixed ``best_weights.json``, since the heatmap runs 4-player
+    games and per-seat weights are what the GA tunes for that seat
+    count. Errors loudly if neither exists.
+    """
+    weights = _try_load(
+        "artifacts/best_weights_4p.json",
+        "artifacts/best_weights.json",
+    )
+    if weights is None:
         raise SystemExit(
-            "artifacts/best_weights.json not found — run "
+            "Neither artifacts/best_weights_4p.json nor "
+            "artifacts/best_weights.json exists — run "
             "`python -m scripts.evolve_hyper_adaptive` first."
         )
-    return json.loads(path.read_text())["weights"]
+    return weights
 
 
 def make_factories() -> dict:
     evolved = _load_evolved()
-    return {
+    factories: dict = {
         "Random":       lambda name, seed: RandomAI(name, seed=seed),
         "Heuristic":    lambda name, seed: HeuristicAI(name, seed=seed),
         "Adaptive":     lambda name, seed: AdaptiveHeuristicAI(name, seed=seed),
@@ -59,6 +86,33 @@ def make_factories() -> dict:
             name, evolved, seed=seed
         ),
     }
+
+    # Evo2 ships in two flavours depending on which GA produced it.
+    # Show both rows when both files exist so the matrix answers
+    # "did training against the old champion generalise better than
+    #  self-play?" directly.
+    evo2_vs_old = _try_load(
+        "artifacts/best_weights_evo2_vs_old_4p.json",
+    )
+    evo2_self = _try_load(
+        "artifacts/best_weights_evo2_self_4p.json",
+        "artifacts/best_weights_evo2_4p.json",   # legacy untagged
+        "artifacts/best_weights_evo2.json",      # legacy global
+    )
+    if evo2_vs_old is not None:
+        # Capture by default-arg so the lambda doesn't close over the
+        # loop variable (matters when both flavours are registered).
+        factories["Evo2(vs old)"] = lambda name, seed, w=evo2_vs_old: (
+            Evo2AI.from_weights(name, w, seed=seed)
+        )
+    if evo2_self is not None:
+        factories["Evo2(self)"] = lambda name, seed, w=evo2_self: (
+            Evo2AI.from_weights(name, w, seed=seed)
+        )
+    if evo2_vs_old is None and evo2_self is None:
+        print("(Evo2 skipped — no artifacts/best_weights_evo2_*.json yet. "
+              "Run `python -m scripts.evolve_evo2` to include it.)")
+    return factories
 
 
 def play_one(challenger_factory, opponent_factory, chart: str, seed: int) -> bool:

@@ -47,6 +47,30 @@ class Player(ABC):
     ) -> GemCard:
         ...
 
+    # ------------------------------------------------------------------
+    # Optional debug-mode hook.
+    # ------------------------------------------------------------------
+    def explain_bid(
+        self,
+        public_state: "GameState",
+        my_state: "PlayerState",
+        auction: AuctionCard,
+    ) -> list[str]:
+        """Return the *detail* lines for ``--debug`` rationale output.
+
+        Each AI subclass that wants to surface its reasoning in the CLI's
+        ``--debug`` mode overrides this. The framework
+        (:mod:`megagem.explain`) handles the standard header
+        (``bid=X cap=Y coins=Z ai=Class``) and indents whatever lines
+        this method returns underneath. Returning an empty list — the
+        default — produces a header-only block.
+
+        Implementations must be observational only: never mutate state,
+        never call back into ``choose_bid``. The explainer wraps any
+        exception thrown here so a buggy override cannot break gameplay.
+        """
+        return []
+
 
 class RandomAI(Player):
     """Picks bids and gem reveals uniformly at random over legal options."""
@@ -374,6 +398,24 @@ class HeuristicAI(Player):
         # Use a fraction of avg so we don't over-reserve.
         return int(future_treasures * avg_value * 0.2)
 
+    # --- Debug rationale --------------------------------------------------
+
+    def explain_bid(
+        self,
+        public_state: "GameState",
+        my_state: "PlayerState",
+        auction: AuctionCard,
+    ) -> list[str]:
+        reserve = self._reserve_for_future(public_state)
+        spendable = max(0, my_state.coins - reserve)
+        lines = [
+            f"reserve={reserve}  spendable={spendable}  discount={self.DISCOUNT:.2f}",
+        ]
+        if isinstance(auction, TreasureCard):
+            value = _treasure_value(auction, public_state, my_state)
+            lines.append(f"treasure_value_estimate={value}")
+        return lines
+
     # --- Reveal -----------------------------------------------------------
 
     def choose_gem_to_reveal(
@@ -444,6 +486,17 @@ class _DiscountFeatures:
         self.avg_cash_ratio = avg_cash_ratio
         self.top_cash_ratio = top_cash_ratio
         self.variance = variance
+
+
+def _format_discount_features(f: _DiscountFeatures) -> str:
+    """One-line summary used by the ``explain_bid`` overrides for every
+    AI in the AdaptiveHeuristic family. Centralised so the format string
+    only lives in one place."""
+    return (
+        f"features:  progress={f.progress:.2f}  "
+        f"my_cash={f.my_cash_ratio:.2f}  avg_cash={f.avg_cash_ratio:.2f}  "
+        f"top_cash={f.top_cash_ratio:.2f}  var={f.variance:.2f}"
+    )
 
 
 def _ev_remaining_auctions(
@@ -570,6 +623,27 @@ class AdaptiveHeuristicAI(HeuristicAI):
             return min(int(auction.amount * discount), cap)
 
         return 0
+
+    # --- Debug rationale --------------------------------------------------
+
+    def explain_bid(
+        self,
+        public_state: "GameState",
+        my_state: "PlayerState",
+        auction: AuctionCard,
+    ) -> list[str]:
+        features = _compute_discount_features(public_state, my_state)
+        reserve = self._reserve_for_future(public_state)
+        spendable = max(0, my_state.coins - reserve)
+        lines = [
+            _format_discount_features(features),
+            f"reserve={reserve}  spendable={spendable}  "
+            f"discount={self.discount_rate(features):.2f}",
+        ]
+        if isinstance(auction, TreasureCard):
+            value = _treasure_value(auction, public_state, my_state)
+            lines.append(f"treasure_value_estimate={value}")
+        return lines
 
 
 # ----------------------------------------------------------------------------
@@ -805,6 +879,24 @@ class HypergeometricAI(Player):
         )
         return int(future_treasures * avg_value * 0.2)
 
+    # --- Debug rationale --------------------------------------------------
+
+    def explain_bid(
+        self,
+        public_state: "GameState",
+        my_state: "PlayerState",
+        auction: AuctionCard,
+    ) -> list[str]:
+        reserve = self._reserve_for_future(public_state)
+        spendable = max(0, my_state.coins - reserve)
+        lines = [
+            f"reserve={reserve}  spendable={spendable}  discount={self.DISCOUNT:.2f}",
+        ]
+        if isinstance(auction, TreasureCard):
+            value = _hyper_treasure_value(auction, public_state, my_state)
+            lines.append(f"treasure_value_estimate={value:.1f}")
+        return lines
+
     # --- Reveal -----------------------------------------------------------
 
     def choose_gem_to_reveal(
@@ -963,6 +1055,27 @@ class HyperAdaptiveAI(AdaptiveHeuristicAI):
             return min(int(auction.amount * discount), cap)
 
         return 0
+
+    # --- Debug rationale --------------------------------------------------
+
+    def explain_bid(
+        self,
+        public_state: "GameState",
+        my_state: "PlayerState",
+        auction: AuctionCard,
+    ) -> list[str]:
+        features = _hyper_compute_discount_features(public_state, my_state)
+        reserve = self._reserve_for_future(public_state)
+        spendable = max(0, my_state.coins - reserve)
+        lines = [
+            _format_discount_features(features),
+            f"reserve={reserve}  spendable={spendable}  "
+            f"discount={self.discount_rate(features):.2f}",
+        ]
+        if isinstance(auction, TreasureCard):
+            value = _hyper_treasure_value(auction, public_state, my_state)
+            lines.append(f"treasure_value_estimate={value:.1f}")
+        return lines
 
 
 # ----------------------------------------------------------------------------
@@ -1128,3 +1241,39 @@ class HyperAdaptiveSplitAI(HyperAdaptiveAI):
             return min(int(auction.amount * d), cap)
 
         return 0
+
+    # --- Debug rationale --------------------------------------------------
+
+    def explain_bid(
+        self,
+        public_state: "GameState",
+        my_state: "PlayerState",
+        auction: AuctionCard,
+    ) -> list[str]:
+        features = _hyper_compute_discount_features(public_state, my_state)
+        reserve = self._reserve_for_future(public_state)
+        spendable = max(0, my_state.coins - reserve)
+        td = self.treasure_model.discount(features)
+        idd = self.invest_model.discount(features)
+        ld = self.loan_model.discount(features)
+        # Mark which head fires for the current auction so the active row
+        # is unambiguous in the debug printout.
+        kind = (
+            "treasure" if isinstance(auction, TreasureCard)
+            else "invest" if isinstance(auction, InvestCard)
+            else "loan" if isinstance(auction, LoanCard)
+            else None
+        )
+        marker = {"treasure": ("◀", "  ", "  "),
+                  "invest":   ("  ", "◀", "  "),
+                  "loan":     ("  ", "  ", "◀")}.get(kind, ("  ", "  ", "  "))
+        lines = [
+            _format_discount_features(features),
+            f"reserve={reserve}  spendable={spendable}",
+            f"heads:  treasure={td:.2f}{marker[0]}  "
+            f"invest={idd:.2f}{marker[1]}  loan={ld:.2f}{marker[2]}",
+        ]
+        if isinstance(auction, TreasureCard):
+            value = _hyper_treasure_value(auction, public_state, my_state)
+            lines.append(f"treasure_value_estimate={value:.1f}")
+        return lines
