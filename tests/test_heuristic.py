@@ -551,7 +551,7 @@ class HyperAdaptiveBidTest(unittest.TestCase):
         value = _hyper_treasure_value(TreasureCard(1), state, me)
         feats = _hyper_compute_discount_features(state, me)
         discount = ai.discount_rate(feats)
-        reserve = ai._reserve_for_future(state)
+        reserve = ai._reserve_for_future(state, me)
         spendable = max(0, me.coins - reserve)
         cap = me.coins  # treasure cap = coins
         expected = max(0, min(int(value * discount), spendable, cap))
