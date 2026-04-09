@@ -1,0 +1,495 @@
+/* MegaGem multiplayer — minimal dark theme.
+   Kept small and self-contained; no framework, no preprocessor. */
+
+:root {
+    --bg: #0f1220;
+    --bg-card: #1a1e33;
+    --bg-card-alt: #242944;
+    --border: #323759;
+    --text: #e9ecff;
+    --muted: #8a90b8;
+    --accent: #6b8cff;
+    --accent-dark: #4766d8;
+    --success: #5ee59a;
+    --warn: #ffbb55;
+    --danger: #ff6b6b;
+
+    --blue: #5aa9ff;
+    --green: #5ee59a;
+    --pink: #ff6fbc;
+    --purple: #b96bff;
+    --yellow: #ffd93d;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 15px;
+    line-height: 1.4;
+}
+
+.topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+}
+
+.topbar h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.subtle {
+    color: var(--muted);
+    font-weight: 400;
+    font-size: 14px;
+}
+
+.topbar-actions {
+    display: flex;
+    gap: 8px;
+}
+
+main {
+    padding: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.screen {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* --- Cards --------------------------------------------------------- */
+
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    max-width: 560px;
+    margin: 0 auto;
+    width: 100%;
+}
+
+.card h2 {
+    margin-top: 0;
+    margin-bottom: 16px;
+}
+
+.card h3 {
+    margin-top: 16px;
+    margin-bottom: 8px;
+    font-size: 15px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.card h4 {
+    margin: 12px 0 6px;
+    font-size: 13px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* --- Fields + buttons --------------------------------------------- */
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 12px;
+}
+
+.field > span {
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.field input,
+.field select,
+input[type="number"],
+input[type="text"],
+select {
+    background: var(--bg-card-alt);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 15px;
+    font-family: inherit;
+}
+
+.field input:focus,
+.field select:focus,
+input:focus,
+select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+}
+
+.grow {
+    flex: 1;
+}
+
+button {
+    font-family: inherit;
+    font-size: 15px;
+    padding: 10px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-card-alt);
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+button:hover:not(:disabled) {
+    background: var(--border);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0b0e1f;
+    font-weight: 600;
+}
+
+.primary:hover:not(:disabled) {
+    background: var(--accent-dark);
+    border-color: var(--accent-dark);
+}
+
+.secondary {
+    background: transparent;
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.secondary:hover:not(:disabled) {
+    background: var(--bg-card-alt);
+}
+
+.ghost {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--muted);
+    padding: 6px 12px;
+    text-decoration: none;
+    font-size: 14px;
+}
+
+.ghost:hover {
+    color: var(--text);
+    border-color: var(--border);
+}
+
+.muted {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.mono {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    background: var(--bg-card-alt);
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.1em;
+}
+
+/* --- Lobby slot list ---------------------------------------------- */
+
+.slot-list {
+    list-style: none;
+    padding: 0;
+    margin: 12px 0;
+}
+
+.slot-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--bg-card-alt);
+    border-radius: 6px;
+    margin-bottom: 6px;
+}
+
+.slot-list .slot-name {
+    font-weight: 600;
+}
+
+.slot-list .slot-tag {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 8px;
+}
+
+.slot-list .slot-tag.human {
+    background: rgba(107, 140, 255, 0.2);
+    color: var(--accent);
+}
+
+.slot-list .slot-tag.ai {
+    background: rgba(94, 229, 154, 0.2);
+    color: var(--success);
+}
+
+.slot-list .slot-tag.host {
+    background: rgba(255, 187, 85, 0.2);
+    color: var(--warn);
+}
+
+.slot-list button {
+    padding: 4px 10px;
+    font-size: 12px;
+}
+
+/* --- Game screen --------------------------------------------------- */
+
+.game-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.game-grid .card {
+    max-width: none;
+    margin: 0;
+}
+
+.board {
+    grid-column: 1 / 3;
+}
+
+.board-header {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 12px;
+}
+
+.board-header b {
+    color: var(--text);
+}
+
+.auction-row {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.auction-card {
+    background: var(--bg-card-alt);
+    border: 2px solid var(--accent);
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-weight: 600;
+    min-width: 140px;
+    text-align: center;
+}
+
+.gem-row {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    min-height: 28px;
+}
+
+.gem {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #0b0e1f;
+}
+
+.gem.Blue { background: var(--blue); }
+.gem.Green { background: var(--green); }
+.gem.Pink { background: var(--pink); }
+.gem.Purple { background: var(--purple); }
+.gem.Yellow { background: var(--yellow); }
+
+.gem.clickable {
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+
+.gem.clickable:hover {
+    transform: scale(1.1);
+    border-color: white;
+}
+
+.mission-list,
+.player-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.mission-list li {
+    padding: 6px 10px;
+    background: var(--bg-card-alt);
+    border-radius: 4px;
+    margin-bottom: 4px;
+    font-size: 13px;
+}
+
+.player-list li {
+    padding: 10px 12px;
+    background: var(--bg-card-alt);
+    border-radius: 6px;
+    margin-bottom: 6px;
+}
+
+.player-list .player-top {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.player-list .player-sub {
+    color: var(--muted);
+    font-size: 12px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.player-list li.winner {
+    border-left: 3px solid var(--warn);
+}
+
+.player-list li.self {
+    background: rgba(107, 140, 255, 0.15);
+}
+
+.you-stats {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 12px;
+    color: var(--muted);
+}
+
+.you-stats b {
+    color: var(--text);
+}
+
+.you #g-you-hand .gem {
+    width: 32px;
+    height: 32px;
+}
+
+.log-card {
+    grid-column: 1 / 3;
+}
+
+.log {
+    max-height: 260px;
+    overflow-y: auto;
+    font-size: 13px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    background: var(--bg-card-alt);
+    padding: 10px;
+    border-radius: 6px;
+}
+
+.log .entry {
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--border);
+}
+
+.log .entry:last-child {
+    border-bottom: none;
+}
+
+.log .entry.winner {
+    color: var(--success);
+}
+
+/* --- Scores -------------------------------------------------------- */
+
+.score-list {
+    padding-left: 24px;
+}
+
+.score-list li {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.score-list li:first-child {
+    color: var(--warn);
+    font-weight: 700;
+    font-size: 17px;
+}
+
+/* --- Toast --------------------------------------------------------- */
+
+.toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--bg-card-alt);
+    border: 1px solid var(--accent);
+    padding: 12px 16px;
+    border-radius: 6px;
+    max-width: 300px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    z-index: 100;
+}
+
+.toast.error {
+    border-color: var(--danger);
+}
+
+/* --- Responsive ---------------------------------------------------- */
+
+@media (max-width: 720px) {
+    .game-grid {
+        grid-template-columns: 1fr;
+    }
+    .board,
+    .log-card {
+        grid-column: 1;
+    }
+}

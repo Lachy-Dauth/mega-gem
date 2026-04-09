@@ -6,12 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repo layout
 
-The Python engine, AI zoo, tests, GA tuners, and checked-in weights all live under **`research/`**. The browser frontend (`play/`, `index.html`) stays at the repo root. **Every Python command below must be run from inside `research/`** — the scripts resolve paths like `saved_best_weights/` and `artifacts/` relative to the current working directory.
+The canonical Python engine, AI zoo, tests, GA tuners, and checked-in weights all live under **`research/`**. The offline single-player browser frontend (`play/`, `index.html`) and the multiplayer stack (`server/`, `web/`) live at the repo root. **Every research-side Python command (CLI, tests, GA) must be run from inside `research/`** — those scripts resolve paths like `saved_best_weights/` and `artifacts/` relative to the current working directory. **The multiplayer server runs from the repo root** — it resolves weights via `Path(__file__)` so it does not care about the CWD.
 
 ```
 mega-gem/
 ├── index.html          # redirect to play/index.html
-├── play/               # vanilla-JS browser frontend (no build, no server)
+├── play/               # offline single-player vanilla-JS frontend
+├── server/             # FastAPI + WebSocket multiplayer server
+├── web/                # multiplayer browser client (served by server/)
+├── requirements.txt    # fastapi / uvicorn / pydantic (server deps)
+├── nixpacks.toml       # Railway build config
+├── Procfile            # Railway start command
+├── railway.json        # Railway service config + healthcheck
 ├── README.md
 ├── CLAUDE.md
 └── research/           # Python engine + AI zoo + GA tuners + tests
@@ -47,9 +53,23 @@ python -m scripts.evolve_evo2 --opponent self_play              # tunes Evo2AI v
 python -m scripts.evolve_evo3                                   # tunes Evo3AI (vs_all = avg vs all 6 prior bots)
 python -m scripts.heatmap_pairwise                              # requires saved_best_weights/*.json
 
-# Browser frontend — no build, no server (from repo root)
+# Offline single-player browser frontend — no build, no server
 open ../play/index.html
 ```
+
+### Multiplayer server (from the repo root)
+
+```bash
+# From mega-gem/, NOT from inside research/.
+pip install -r requirements.txt
+uvicorn server.main:app --reload    # → http://127.0.0.1:8000/
+```
+
+`server/__init__.py` prepends `research/` to `sys.path` so
+`from megagem.engine import play_round` resolves against the canonical
+engine without needing an editable install. Weights are loaded from
+`research/saved_best_weights/` via `Path(__file__)`, so the server
+does not care about CWD.
 
 ### Weights workflow
 
@@ -69,7 +89,9 @@ The `saved_best_weights/` folder currently holds:
 
 - Python engine, CLI, and tests: **stdlib only**.
 - `scripts/evolve_hyper_adaptive.py` and `scripts/heatmap_pairwise.py`: `pip install matplotlib` (forced to `Agg` backend).
-- `play/` browser frontend: zero dependencies, vanilla JS.
+- `play/` offline browser frontend: zero dependencies, vanilla JS.
+- `server/` multiplayer server: `fastapi`, `uvicorn[standard]`, `pydantic` (see `requirements.txt`).
+- `web/` multiplayer browser client: zero dependencies, vanilla JS.
 
 ## Architecture
 
@@ -77,8 +99,20 @@ The `saved_best_weights/` folder currently holds:
 
 The single most important thing to know: this repo contains **two independent implementations of MegaGem**.
 
-- `megagem/` — canonical Python engine + the full AI zoo.
-- `play/megagem.js` — hand-written JS port of the engine plus `RandomAI` and `HeuristicAI` only. It is **not** a binding, **not** Pyodide, **not** generated. If you change a game rule in one place, you must mirror the change in the other or the two versions will silently diverge. `RULES.md` is the source of truth they should both match.
+- `research/megagem/` — canonical Python engine + the full AI zoo. Used by the terminal CLI, the test suite, the GA tuners, and the multiplayer `server/` (which prepends `research/` to `sys.path` at import time).
+- `play/megagem.js` — hand-written JS port of the engine plus `RandomAI`, `HeuristicAI`, `HyperAdaptiveSplitAI`, `Evo2AI`, and `Evo3AI`. It is **not** a binding, **not** Pyodide, **not** generated. If you change a game rule in one place, you must mirror the change in the other or the two versions will silently diverge. `research/RULES.md` is the source of truth they should both match.
+
+The multiplayer client in `web/` is a **thin client** — it doesn't run any game logic. It talks to `server/` over REST + WebSocket and renders whatever state the server sends. So multiplayer games always run the canonical Python engine, never the JS port.
+
+### Multiplayer server (`server/`)
+
+- `server/__init__.py` prepends `research/` to `sys.path` — every other module in `server/` can then write `from megagem.engine import play_round` normally.
+- `server/rooms.py` — `RoomManager` + `Room` + `Slot`. Rooms are keyed on a 5-char share code and held entirely in process memory; no database. A Railway redeploy wipes active rooms — that's acceptable for the MVP.
+- `server/session.py` — `GameSession`. The canonical engine is **synchronous**, so each room spawns a dedicated `threading.Thread` that calls `play_round` in a loop. Humans are wired up via `RemotePlayer` (`server/remote_player.py`), whose `choose_bid` and `choose_gem_to_reveal` block on thread-safe `queue.Queue` instances. The WS handler does `queue.put(amount)` when a bid arrives; the game thread unblocks and proceeds. Broadcasts go the other way via `asyncio.run_coroutine_threadsafe(room.broadcast(...), self.loop)`.
+- **Before `play_round` runs**, the session peeks at `state.auction_deck[-1]` and broadcasts a `round_start` message so human clients can render the card while the engine is about to start blocking on their bid.
+- **Pending-request tracking.** `GameSession._pending_requests[idx]` stores the last unanswered `request_bid` / `request_reveal` per seat. On WS reconnect, `server/main.py`'s welcome handler re-sends the current state *and* the pending request, so a mid-game page refresh picks up exactly where it left off instead of leaving the player staring at a frozen board while the engine thread is still blocked on their queue.
+- `server/protocol.py` — single source of truth for JSON serialization of engine objects. The engine's `GameState` is a dataclass full of `Counter[Color]` / `AuctionCard` / `MissionCard` references; nothing in `server.session` should poke at these directly, it should always go through `serialize_state`, `serialize_auction`, etc.
+- `server/ai_factory.py` — a trimmed mirror of `research/megagem/__main__.py`'s `AI_FACTORIES` dict. Weights are loaded from `research/saved_best_weights/` via an absolute `Path(__file__)`, and missing weights fall back to class defaults with no error (unlike the CLI's `evolved` factory, which raises). The server should *never crash* because a weights file is missing.
 
 ### Engine layering (`megagem/`)
 

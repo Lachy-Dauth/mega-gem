@@ -1,8 +1,10 @@
 # mega-gem
 
 A pure-Python implementation of the **MegaGem** auction-and-collection card
-game, plus a small zoo of bidder AIs and a genetic-algorithm tuner that
-breeds the strongest one. Also (eventually) an online version.
+game, plus a small zoo of bidder AIs, a genetic-algorithm tuner that
+breeds the strongest one, an offline vanilla-JS single-player frontend,
+and a FastAPI + WebSocket multiplayer server that lets humans play
+each other (and the AI zoo) from a browser.
 
 The full game rules — turn structure, bid ties, mission categories, value
 charts — live in [`research/RULES.md`](research/RULES.md). This README
@@ -10,13 +12,16 @@ covers everything *around* the rules: how to run the game, what each AI
 does, how to test them, how to evolve a stronger one, and how to read
 the benchmark plots.
 
-> **Repo layout note.** The Python engine, AI zoo, tests, GA tuners, and
-> checked-in weights all live under **`research/`**. The browser
-> frontend (`play/` and the top-level `index.html` redirect) stays at
-> the repo root. **Every Python command in this README assumes you are
-> inside `research/`** — the scripts resolve paths like
-> `saved_best_weights/` and `artifacts/` relative to the current working
-> directory.
+> **Repo layout note.** The canonical engine, AI zoo, tests, GA
+> tuners, and checked-in weights live under **`research/`**. The
+> offline single-player browser frontend (`play/` + the top-level
+> `index.html` redirect) and the multiplayer **`server/`** + **`web/`**
+> live at the repo root. **Every Python command in this README
+> assumes you are inside `research/` *unless* it explicitly runs the
+> multiplayer server** — the research scripts resolve paths like
+> `saved_best_weights/` and `artifacts/` relative to the current
+> working directory; the server resolves them via an absolute
+> `Path(__file__)` lookup and can run from the repo root.
 
 ---
 
@@ -26,13 +31,14 @@ the benchmark plots.
 2. [Repo layout](#repo-layout)
 3. [Playing in the terminal](#playing-in-the-terminal)
 4. [Playing in the browser](#playing-in-the-browser)
-5. [The game engine](#the-game-engine)
-6. [The AI zoo](#the-ai-zoo)
-7. [Testing](#testing)
-8. [Evolving a better AI (the GA)](#evolving-a-better-ai-the-ga)
-9. [Benchmarking: pairwise heatmap](#benchmarking-pairwise-heatmap)
-10. [Adding your own AI](#adding-your-own-ai)
-11. [Common gotchas](#common-gotchas)
+5. [Multiplayer (FastAPI server)](#multiplayer-fastapi-server)
+6. [The game engine](#the-game-engine)
+7. [The AI zoo](#the-ai-zoo)
+8. [Testing](#testing)
+9. [Evolving a better AI (the GA)](#evolving-a-better-ai-the-ga)
+10. [Benchmarking: pairwise heatmap](#benchmarking-pairwise-heatmap)
+11. [Adding your own AI](#adding-your-own-ai)
+12. [Common gotchas](#common-gotchas)
 
 ---
 
@@ -76,11 +82,26 @@ If everything above worked you have a clean install.
 ```
 mega-gem/
 ├── index.html               # Redirect to play/index.html (for GitHub Pages)
-├── play/                    # Browser frontend — open index.html, no server
+├── play/                    # Offline single-player frontend — open index.html, no server
 │   ├── index.html           # Menu + game screens
 │   ├── style.css            # Dark theme, color-coded gems
 │   ├── megagem.js           # JS port of the engine + RandomAI, HeuristicAI, HyperAdaptiveSplitAI, Evo2AI, Evo3AI
 │   └── ui.js                # UI controller / state machine
+├── server/                  # FastAPI multiplayer server (imports research/megagem)
+│   ├── main.py                 # App + REST routes + WebSocket endpoint
+│   ├── rooms.py                # Room / Slot / RoomManager
+│   ├── session.py              # GameSession — runs the engine in a thread
+│   ├── remote_player.py        # Player adapter whose decisions come over WS
+│   ├── ai_factory.py           # Mirrors research/megagem/__main__.py's AI_FACTORIES
+│   └── protocol.py             # JSON serialization for engine objects
+├── web/                     # Multiplayer browser client (served by server/)
+│   ├── index.html              # Menu → lobby → game → scores
+│   ├── style.css               # Minimal dark theme
+│   └── app.js                  # REST + WebSocket client, DOM rendering
+├── requirements.txt         # Server deps (fastapi, uvicorn, pydantic)
+├── nixpacks.toml            # Railway build config
+├── Procfile                 # Railway start command
+├── railway.json             # Railway service config (healthcheck, restart)
 ├── README.md
 ├── CLAUDE.md                # Cheat-sheet for Claude Code
 └── research/                # Everything Python — run commands from here
@@ -128,8 +149,9 @@ mega-gem/
 
 The Python CLI, engine, and tests have **zero** third-party dependencies
 — stdlib only. matplotlib is needed only for the GA + heatmap scripts in
-`research/scripts/`. The browser frontend in `play/` has no dependencies
-at all.
+`research/scripts/`. The offline browser frontend in `play/` has no
+dependencies at all. The multiplayer server in `server/` depends on
+FastAPI + uvicorn + pydantic (see `requirements.txt`).
 
 ---
 
@@ -208,10 +230,148 @@ start play/index.html              # Windows
 # Or double-click it in your file manager.
 ```
 
-The browser frontend lives at the repo root, *not* under `research/`, so
-these commands are from `mega-gem/`, not `mega-gem/research/`. You can
-also serve it with any static server (e.g. `python -m http.server` from
-inside `play/`) if you'd rather hit it over HTTP.
+The offline browser frontend lives at the repo root, *not* under
+`research/`, so these commands are from `mega-gem/`, not
+`mega-gem/research/`. You can also serve it with any static server
+(e.g. `python -m http.server` from inside `play/`) if you'd rather hit
+it over HTTP.
+
+> `play/` is fully offline — every AI runs client-side in JavaScript.
+> For **multiplayer against other humans + AI**, use the server in the
+> next section instead.
+
+---
+
+## Multiplayer (FastAPI server)
+
+The `server/` directory is a FastAPI + WebSocket app that hosts
+multiplayer games. It reuses the canonical Python engine and AI zoo
+directly (`server/__init__.py` prepends `research/` to `sys.path`), so
+any AI you add under `research/megagem/players/` is immediately
+available as an opponent in multiplayer games too.
+
+### Run it locally
+
+```bash
+# From the repo root — NOT from inside research/.
+pip install -r requirements.txt
+uvicorn server.main:app --reload
+# → open http://127.0.0.1:8000/
+```
+
+You'll see a menu with **Create room** and **Join existing**. Creating
+a room drops you into a lobby screen with a 5-character share code;
+open a second browser tab (or send the code to a friend) and hit
+**Join**. The host can add AI seats from the lobby, pick the value
+chart, and start the game once there are at least 3 players (humans
++ AI combined).
+
+### Architecture
+
+```
+Browser ──HTTP──▶  /api/rooms (create/join/add_ai/start)
+         ──WS────▶  /api/ws/{code}?player_id=...
+                         │
+                         ▼
+                 ┌─────────────────┐
+                 │  server.main    │  FastAPI app (async)
+                 │  ├─ rooms.py    │  in-memory RoomManager
+                 │  ├─ session.py  │  one background thread per room
+                 │  │    ↓         │
+                 │  │  engine.play_round() ← synchronous
+                 │  │    ↑         │
+                 │  └─ remote_player.py  ← queue.Queue blocks the
+                 │                         game thread until a human
+                 │                         WS message arrives
+                 └─────────────────┘
+```
+
+The single most important design decision: the canonical engine is
+**synchronous** (`play_round` iterates players and calls
+`player.choose_bid` inline), so the multiplayer server drives it in a
+background `threading.Thread` per room and bridges the two worlds with
+thread-safe queues:
+
+- **WS → game thread**: a `queue.Queue` on each `RemotePlayer`.
+  `choose_bid` blocks on `queue.get()`; the async WS handler does
+  `queue.put(amount)` when a `{"type": "bid"}` message arrives.
+- **Game thread → WS**: `asyncio.run_coroutine_threadsafe(room.broadcast(...), loop)`
+  schedules the outbound broadcast on the main event loop.
+
+The session also tracks "pending requests" per seat so a mid-game page
+refresh re-receives the last `request_bid` / `request_reveal` on WS
+reconnect — otherwise a reload would leave the player staring at a
+frozen board while the game thread is still blocked on their queue.
+
+### Protocol
+
+Every WS message is JSON with a `"type"` field:
+
+| Direction | Type | Meaning |
+|-----------|------|---------|
+| S → C | `welcome` | Initial snapshot with your seat index. |
+| S → C | `lobby_update` | Room composition changed. |
+| S → C | `game_start` | Game kicked off. |
+| S → C | `state` | Personalised state snapshot (your own hand is revealed; opponents are hidden-hand). |
+| S → C | `round_start` | New auction card on offer. |
+| S → C | `request_bid` | It's your turn to bid. Includes `max_bid` and the current auction. |
+| S → C | `request_reveal` | You won the round — pick a gem from your hand to reveal. |
+| S → C | `round_end` | Bids, winner, taken gems, completed missions. |
+| S → C | `game_end` | Final scores. |
+| S → C | `chat` | Player chat (broadcast). |
+| S → C | `error` | Something went wrong. |
+| C → S | `bid` | `{amount: int}` — bid in response to `request_bid`. |
+| C → S | `reveal` | `{color: "Blue" \| …}` — gem to reveal from your hand. |
+| C → S | `chat` | `{text: str}` |
+| C → S | `ping` | Heartbeat (server replies `pong`). |
+
+### REST routes
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET`  | `/api/health` | Liveness probe — also used by Railway. |
+| `GET`  | `/api/config` | Min/max players, valid charts, AI kinds. |
+| `POST` | `/api/rooms` | Create a room; returns `{room, you}`. |
+| `GET`  | `/api/rooms/{code}` | Fetch current lobby state. |
+| `POST` | `/api/rooms/{code}/join` | Claim a human seat. |
+| `POST` | `/api/rooms/{code}/add_ai` | (host) Add an AI seat with a given kind. |
+| `POST` | `/api/rooms/{code}/configure` | (host) Change chart / seed in lobby. |
+| `POST` | `/api/rooms/{code}/remove_slot` | (host) Kick a seat. |
+| `POST` | `/api/rooms/{code}/start` | (host) Spin up the `GameSession` thread. |
+
+### Deploying to Railway
+
+The repo ships with both `nixpacks.toml` and a `Procfile`, so Railway's
+Nixpacks builder will pick it up without any manual config:
+
+1. Push this repo to GitHub.
+2. Create a new Railway project → **Deploy from GitHub** → pick the repo.
+3. Railway reads `requirements.txt`, runs `pip install`, and starts
+   `uvicorn server.main:app --host 0.0.0.0 --port $PORT`.
+4. The healthcheck at `/api/health` (configured in `railway.json`)
+   gates the deploy.
+
+State is in-memory only — a redeploy wipes in-flight rooms. That's fine
+for the MVP; persistence (Redis or Postgres) is a later concern.
+
+### Limitations / next steps
+
+- **No auth.** Players enter a display name and get a random
+  `player_id` back. Anyone with the `player_id` can act as that seat.
+  Good enough for playing with friends over a shared link; not good
+  enough for ranked matches.
+- **Rooms are not persisted.** An in-memory `RoomManager`. A Railway
+  restart drops every active game. Fine for now; swap in Redis when it
+  matters.
+- **Single-process.** One uvicorn worker. Scaling horizontally requires
+  moving room state out of process memory first.
+- **No spectators.** A WS connection is tied to a seat. Adding
+  `spectator` connections that just receive state snapshots is a small
+  follow-up.
+- **Frontend is intentionally minimal.** The multiplayer UI in `web/`
+  is functional but much plainer than `play/index.html`. Once the
+  protocol is stable, porting `play/ui.js`'s richer board rendering on
+  top of the WS client is the obvious next step.
 
 ### Menu options
 

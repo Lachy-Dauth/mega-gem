@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MegaGem Multiplayer</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="topbar">
+        <h1>MegaGem <span class="subtle">multiplayer</span></h1>
+        <div class="topbar-actions">
+            <a href="https://github.com/Lachy-Dauth/mega-gem" class="ghost" target="_blank" rel="noopener">GitHub</a>
+            <button id="leave" class="ghost" hidden>Leave room</button>
+        </div>
+    </header>
+
+    <main id="app">
+
+        <!-- ===================== MENU ===================== -->
+        <section id="screen-menu" class="screen">
+            <div class="card">
+                <h2>New game</h2>
+                <label class="field">
+                    <span>Your name</span>
+                    <input id="menu-name" type="text" maxlength="20" placeholder="Your display name">
+                </label>
+                <label class="field">
+                    <span>Value chart</span>
+                    <select id="menu-chart">
+                        <option value="A" selected>A — linear (0,4,8,12,16,20)</option>
+                        <option value="B">B — reverse linear (20..0)</option>
+                        <option value="C">C — slow start (0,2,5,9,14,20)</option>
+                        <option value="D">D — penalised end (20..0)</option>
+                        <option value="E">E — peaks at 3 (0,4,10,18,6,0)</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span>Seed (optional)</span>
+                    <input id="menu-seed" type="number" placeholder="blank for random">
+                </label>
+                <button id="menu-create" class="primary">Create room</button>
+            </div>
+
+            <div class="card">
+                <h2>Join existing</h2>
+                <label class="field">
+                    <span>Your name</span>
+                    <input id="menu-name-join" type="text" maxlength="20" placeholder="Your display name">
+                </label>
+                <label class="field">
+                    <span>Room code</span>
+                    <input id="menu-code" type="text" maxlength="8" placeholder="ABC12" autocapitalize="characters" style="text-transform: uppercase">
+                </label>
+                <button id="menu-join" class="primary">Join room</button>
+            </div>
+        </section>
+
+        <!-- ===================== LOBBY ===================== -->
+        <section id="screen-lobby" class="screen" hidden>
+            <div class="card">
+                <h2>Room <span id="lobby-code" class="mono"></span></h2>
+                <p class="muted">Share the code (or the URL) so friends can join.</p>
+                <div class="row">
+                    <label class="field grow">
+                        <span>Value chart</span>
+                        <select id="lobby-chart" disabled>
+                            <option value="A">A — linear</option>
+                            <option value="B">B — reverse linear</option>
+                            <option value="C">C — slow start</option>
+                            <option value="D">D — penalised end</option>
+                            <option value="E">E — peaks at 3</option>
+                        </select>
+                    </label>
+                    <label class="field grow">
+                        <span>Seed</span>
+                        <input id="lobby-seed" type="number" placeholder="random" disabled>
+                    </label>
+                </div>
+
+                <h3>Seats (<span id="lobby-count">0</span>/5)</h3>
+                <ul id="lobby-slots" class="slot-list"></ul>
+
+                <div id="host-controls" class="row" hidden>
+                    <label class="field grow">
+                        <span>Add AI</span>
+                        <select id="lobby-ai-kind">
+                            <option value="random">Random (very easy)</option>
+                            <option value="heuristic">Heuristic (medium)</option>
+                            <option value="adaptive">Adaptive</option>
+                            <option value="hyper">Hypergeometric</option>
+                            <option value="hyper_adapt">Hyper-Adaptive</option>
+                            <option value="evolved">Evolved (hard)</option>
+                            <option value="evo2">Evo2 (harder)</option>
+                            <option value="evo3" selected>Evo3 (hardest)</option>
+                        </select>
+                    </label>
+                    <button id="lobby-add-ai" class="secondary">Add AI seat</button>
+                </div>
+                <button id="lobby-start" class="primary" hidden>Start game</button>
+                <p id="lobby-status" class="muted"></p>
+            </div>
+        </section>
+
+        <!-- ===================== GAME ===================== -->
+        <section id="screen-game" class="screen" hidden>
+            <div class="game-grid">
+                <!-- Public board -->
+                <div class="card board">
+                    <div class="board-header">
+                        <span>Round <b id="g-round">0</b></span>
+                        <span>Chart <b id="g-chart">A</b></span>
+                        <span>Auction left: <b id="g-auction-left">0</b></span>
+                        <span>Gem deck: <b id="g-gem-left">0</b></span>
+                    </div>
+                    <div class="auction-row">
+                        <div>
+                            <h3>Up for auction</h3>
+                            <div id="g-auction" class="auction-card">—</div>
+                        </div>
+                        <div class="grow">
+                            <h3>Revealed gems</h3>
+                            <div id="g-revealed" class="gem-row"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <h3>Value display</h3>
+                        <div id="g-display" class="gem-row"></div>
+                    </div>
+                    <div>
+                        <h3>Active missions</h3>
+                        <ul id="g-missions" class="mission-list"></ul>
+                    </div>
+                </div>
+
+                <!-- Players -->
+                <div class="card">
+                    <h3>Players</h3>
+                    <ul id="g-players" class="player-list"></ul>
+                </div>
+
+                <!-- Your seat -->
+                <div class="card you">
+                    <h3>You — <span id="g-you-name"></span></h3>
+                    <div class="you-stats">
+                        <span>Coins: <b id="g-you-coins">0</b></span>
+                        <span>Hand: <span id="g-you-hand-count">0</span></span>
+                    </div>
+                    <div>
+                        <h4>Your hand</h4>
+                        <div id="g-you-hand" class="gem-row"></div>
+                    </div>
+                    <div>
+                        <h4>Your collection</h4>
+                        <div id="g-you-collection" class="gem-row"></div>
+                    </div>
+                    <div id="g-bid-panel" hidden>
+                        <h4>Your bid</h4>
+                        <p class="muted" id="g-bid-hint"></p>
+                        <div class="row">
+                            <input id="g-bid-input" type="number" min="0" value="0">
+                            <button id="g-bid-submit" class="primary">Submit</button>
+                        </div>
+                    </div>
+                    <div id="g-reveal-panel" hidden>
+                        <h4>Choose a gem to reveal</h4>
+                        <p class="muted">Click one of your hand gems above to reveal it into the value display.</p>
+                    </div>
+                    <div id="g-waiting" class="muted"></div>
+                </div>
+
+                <!-- Log -->
+                <div class="card log-card">
+                    <h3>Round log</h3>
+                    <div id="g-log" class="log"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== SCORES ===================== -->
+        <section id="screen-end" class="screen" hidden>
+            <div class="card">
+                <h2>Final scores</h2>
+                <ol id="end-scores" class="score-list"></ol>
+                <button id="end-back" class="primary">Back to menu</button>
+            </div>
+        </section>
+
+    </main>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="/static/app.js" type="module"></script>
+</body>
+</html>
