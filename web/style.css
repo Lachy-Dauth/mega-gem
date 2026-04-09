@@ -463,6 +463,86 @@ button:disabled {
     font-size: 17px;
 }
 
+/* --- Chat panel ---------------------------------------------------- */
+
+.chat-card {
+    max-width: 1100px;
+    margin: 16px auto 0;
+}
+
+.chat-messages {
+    max-height: 180px;
+    min-height: 80px;
+    overflow-y: auto;
+    background: var(--bg-card-alt);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+.chat-messages .chat-entry {
+    padding: 3px 0;
+    word-wrap: break-word;
+}
+
+.chat-messages .chat-entry .chat-from {
+    font-weight: 600;
+    color: var(--accent);
+    margin-right: 6px;
+}
+
+.chat-messages .chat-entry.self .chat-from {
+    color: var(--success);
+}
+
+.chat-messages .chat-entry.system {
+    color: var(--muted);
+    font-style: italic;
+    font-size: 13px;
+}
+
+.chat-messages .chat-empty {
+    color: var(--muted);
+    font-size: 13px;
+    font-style: italic;
+}
+
+.chat-input-row {
+    display: flex;
+    gap: 8px;
+}
+
+.chat-input-row input {
+    flex: 1;
+}
+
+/* --- Connection status -------------------------------------------- */
+
+.conn-status {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: var(--bg-card-alt);
+    color: var(--muted);
+    border: 1px solid var(--border);
+}
+
+.conn-status.connected {
+    color: var(--success);
+    border-color: rgba(94, 229, 154, 0.4);
+}
+
+.conn-status.reconnecting {
+    color: var(--warn);
+    border-color: rgba(255, 187, 85, 0.4);
+}
+
+.conn-status.offline {
+    color: var(--danger);
+    border-color: rgba(255, 107, 107, 0.4);
+}
+
 /* --- Toast --------------------------------------------------------- */
 
 .toast {

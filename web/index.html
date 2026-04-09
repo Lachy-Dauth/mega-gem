@@ -10,6 +10,7 @@
     <header class="topbar">
         <h1>MegaGem <span class="subtle">multiplayer</span></h1>
         <div class="topbar-actions">
+            <span id="conn-status" class="conn-status" hidden></span>
             <a href="https://github.com/Lachy-Dauth/mega-gem" class="ghost" target="_blank" rel="noopener">GitHub</a>
             <button id="leave" class="ghost" hidden>Leave room</button>
         </div>
@@ -185,6 +186,16 @@
                 <button id="end-back" class="primary">Back to menu</button>
             </div>
         </section>
+
+        <!-- ===================== CHAT (lobby + game) ===================== -->
+        <div id="chat-panel" class="card chat-card" hidden>
+            <h3>Chat</h3>
+            <div id="chat-messages" class="chat-messages"></div>
+            <form id="chat-form" class="chat-input-row" autocomplete="off">
+                <input id="chat-input" type="text" maxlength="200" placeholder="Say something…">
+                <button id="chat-send" type="submit" class="secondary">Send</button>
+            </form>
+        </div>
 
     </main>
 

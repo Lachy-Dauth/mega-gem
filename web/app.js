@@ -21,9 +21,17 @@ const state = {
     currentMaxBid: null,
     waitingOnBid: false,
     waitingOnReveal: false,
-    // WebSocket
+    // WebSocket + reconnection
     ws: null,
+    wsClosedByUser: false,
+    reconnectAttempts: 0,
+    reconnectTimer: null,
+    // Chat history (kept across lobby → game → reconnects)
+    chatMessages: [],
 };
+
+// Max exponential backoff cap, in ms.
+const RECONNECT_MAX_DELAY_MS = 16000;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,6 +50,11 @@ function showScreen(id) {
         s.hidden = s.id !== id;
     }
     $("leave").hidden = id === "screen-menu";
+    // Chat is visible whenever the player is in a room (lobby + game).
+    // The end screen also shows it so post-game trash talk still works.
+    const chatVisible = id === "screen-lobby" || id === "screen-game" || id === "screen-end";
+    $("chat-panel").hidden = !chatVisible;
+    $("conn-status").hidden = id === "screen-menu";
 }
 
 function toast(message, kind = "info") {
@@ -88,6 +101,14 @@ function clearSession() {
     state.room = null;
     state.gameState = null;
     state.currentAuction = null;
+    state.chatMessages = [];
+    renderChat();
+    if (state.reconnectTimer) {
+        clearTimeout(state.reconnectTimer);
+        state.reconnectTimer = null;
+    }
+    state.reconnectAttempts = 0;
+    setConnStatus("offline", "offline");
 }
 
 function restoreSession() {
@@ -266,14 +287,41 @@ async function onStartGame() {
 // ---------------------------------------------------------------------------
 
 function connectWebSocket() {
+    if (!state.roomCode || !state.playerId) return;
+    if (state.reconnectTimer) {
+        clearTimeout(state.reconnectTimer);
+        state.reconnectTimer = null;
+    }
     if (state.ws) {
         try { state.ws.close(); } catch {}
     }
+    state.wsClosedByUser = false;
+
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${proto}//${location.host}/api/ws/${state.roomCode}?player_id=${encodeURIComponent(state.playerId)}`;
-    const ws = new WebSocket(url);
+    setConnStatus(
+        state.reconnectAttempts > 0 ? "reconnecting" : "connecting",
+        state.reconnectAttempts > 0 ? "reconnecting…" : "connecting…",
+    );
+    let ws;
+    try {
+        ws = new WebSocket(url);
+    } catch (e) {
+        console.error("ws construct failed", e);
+        scheduleReconnect();
+        return;
+    }
     state.ws = ws;
 
+    ws.addEventListener("open", () => {
+        const wasReconnect = state.reconnectAttempts > 0;
+        state.reconnectAttempts = 0;
+        setConnStatus("connected", "connected");
+        if (wasReconnect) {
+            toast("Reconnected");
+            appendChatSystem("Reconnected to room.");
+        }
+    });
     ws.addEventListener("message", (evt) => {
         try {
             const msg = JSON.parse(evt.data);
@@ -284,10 +332,50 @@ function connectWebSocket() {
     });
     ws.addEventListener("close", () => {
         if (state.ws === ws) state.ws = null;
+        if (state.wsClosedByUser) {
+            setConnStatus("offline", "offline");
+            return;
+        }
+        if (!state.roomCode) {
+            setConnStatus("offline", "offline");
+            return;
+        }
+        scheduleReconnect();
     });
     ws.addEventListener("error", () => {
-        toast("WebSocket error", "error");
+        // "error" always precedes "close"; let the close handler drive
+        // the reconnect. Just surface the first failure as a toast so
+        // the user sees *something*.
+        if (state.reconnectAttempts === 0) {
+            toast("Connection lost", "error");
+        }
     });
+}
+
+function scheduleReconnect() {
+    if (!state.roomCode || !state.playerId) return;
+    if (state.wsClosedByUser) return;
+    state.reconnectAttempts += 1;
+    const delay = Math.min(
+        1000 * Math.pow(2, state.reconnectAttempts - 1),
+        RECONNECT_MAX_DELAY_MS,
+    );
+    const secs = Math.round(delay / 1000);
+    setConnStatus("reconnecting", `reconnecting in ${secs}s…`);
+    if (state.reconnectAttempts === 1) {
+        appendChatSystem("Connection lost — reconnecting…");
+    }
+    state.reconnectTimer = setTimeout(() => {
+        state.reconnectTimer = null;
+        connectWebSocket();
+    }, delay);
+}
+
+function setConnStatus(cls, text) {
+    const el = $("conn-status");
+    if (!el) return;
+    el.className = "conn-status " + cls;
+    el.textContent = text;
 }
 
 function handleServerMessage(msg) {
@@ -296,6 +384,13 @@ function handleServerMessage(msg) {
             state.room = msg.room;
             state.slotIndex = msg.slot_index;
             renderLobby();
+            // On a mid-game reconnect the server won't re-send game_start,
+            // so detect the playing/done states and flip the screen now.
+            if (msg.room.status === "playing") {
+                showScreen("screen-game");
+            } else if (msg.room.status === "lobby") {
+                showScreen("screen-lobby");
+            }
             break;
         case "lobby_update":
             state.room = msg.room;
@@ -347,7 +442,7 @@ function handleServerMessage(msg) {
             toast("Session cancelled", "error");
             break;
         case "chat":
-            logEntry(`${msg.from}: ${msg.text}`);
+            appendChatMessage(msg);
             break;
         case "error":
             toast(msg.message || "Server error", "error");
@@ -519,8 +614,79 @@ function submitReveal(color) {
 }
 
 // ---------------------------------------------------------------------------
+// Chat
+// ---------------------------------------------------------------------------
+
+function onChatSubmit(event) {
+    event.preventDefault();
+    const input = $("chat-input");
+    const text = input.value.trim().slice(0, 200);
+    if (!text) return;
+    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+        toast("Not connected — can't send chat", "error");
+        return;
+    }
+    state.ws.send(JSON.stringify({ type: "chat", text }));
+    input.value = "";
+}
+
+function appendChatMessage(msg) {
+    state.chatMessages.push({
+        kind: "user",
+        from: msg.from,
+        fromIdx: msg.from_idx,
+        text: msg.text,
+        ts: Date.now(),
+    });
+    // Cap history to avoid unbounded memory growth on long sessions.
+    if (state.chatMessages.length > 200) state.chatMessages.shift();
+    renderChat();
+}
+
+function appendChatSystem(text) {
+    state.chatMessages.push({ kind: "system", text, ts: Date.now() });
+    if (state.chatMessages.length > 200) state.chatMessages.shift();
+    renderChat();
+}
+
+function renderChat() {
+    const container = $("chat-messages");
+    if (!container) return;
+    container.innerHTML = "";
+    if (state.chatMessages.length === 0) {
+        container.appendChild(el("div", "chat-empty", "No messages yet."));
+        return;
+    }
+    for (const m of state.chatMessages) {
+        if (m.kind === "system") {
+            container.appendChild(el("div", "chat-entry system", m.text));
+            continue;
+        }
+        const isSelf = m.fromIdx === state.slotIndex;
+        const entry = el("div", "chat-entry" + (isSelf ? " self" : ""));
+        entry.appendChild(el("span", "chat-from", `${m.from}:`));
+        entry.appendChild(document.createTextNode(m.text));
+        container.appendChild(entry);
+    }
+    container.scrollTop = container.scrollHeight;
+}
+
+// ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
+
+function leaveRoom() {
+    state.wsClosedByUser = true;
+    if (state.reconnectTimer) {
+        clearTimeout(state.reconnectTimer);
+        state.reconnectTimer = null;
+    }
+    if (state.ws) {
+        try { state.ws.close(); } catch {}
+    }
+    clearSession();
+    showScreen("screen-menu");
+}
 
 function wireUp() {
     $("menu-create").onclick = onCreateRoom;
@@ -533,16 +699,13 @@ function wireUp() {
     $("g-bid-input").addEventListener("keydown", (e) => {
         if (e.key === "Enter") submitBid();
     });
-    $("leave").onclick = () => {
-        if (state.ws) try { state.ws.close(); } catch {}
-        clearSession();
-        showScreen("screen-menu");
-    };
-    $("end-back").onclick = () => {
-        if (state.ws) try { state.ws.close(); } catch {}
-        clearSession();
-        showScreen("screen-menu");
-    };
+    $("chat-form").addEventListener("submit", onChatSubmit);
+    $("leave").onclick = leaveRoom;
+    $("end-back").onclick = leaveRoom;
+    window.addEventListener("beforeunload", () => {
+        // Don't trigger reconnect loops on a real navigation away.
+        state.wsClosedByUser = true;
+    });
 
     // Auto-rejoin if a previous session is still valid.
     if (restoreSession()) {
@@ -550,6 +713,9 @@ function wireUp() {
             .then((data) => {
                 state.room = data.room;
                 renderLobby();
+                // If the game is already playing, welcome handler will
+                // re-send a state snapshot and flip us to screen-game;
+                // start on lobby for the lobby case.
                 showScreen("screen-lobby");
                 connectWebSocket();
             })
