@@ -1,11 +1,23 @@
 # Railway / Nixpacks build config.
-# Uses Python 3.11 and installs the server deps from requirements.txt.
+# Uses Python 3.11 and installs the server deps into a venv. We need
+# the explicit venv because the Nix-provided pip is on a read-only
+# /nix/store filesystem and is marked PEP 668 externally-managed, so
+# a bare `pip install` fails with:
+#
+#     error: externally-managed-environment
+#     × This environment is externally managed
+#
+# Creating /opt/venv and using its pip / uvicorn sidesteps that.
 
 [phases.setup]
-nixPkgs = ["python311", "python311Packages.pip"]
+nixPkgs = ["python311", "python311Packages.pip", "python311Packages.virtualenv"]
 
 [phases.install]
-cmds = ["pip install --no-cache-dir -r requirements.txt"]
+cmds = [
+  "python -m venv /opt/venv",
+  "/opt/venv/bin/pip install --no-cache-dir --upgrade pip",
+  "/opt/venv/bin/pip install --no-cache-dir -r requirements.txt",
+]
 
 [start]
-cmd = "uvicorn server.main:app --host 0.0.0.0 --port $PORT"
+cmd = "/opt/venv/bin/uvicorn server.main:app --host 0.0.0.0 --port $PORT"
