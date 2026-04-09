@@ -2,11 +2,31 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-`README.md` is the canonical onboarding doc and `RULES.md` is the canonical rules doc — read those for anything not covered here. This file is a curated cheat-sheet for things that are non-obvious or load-bearing for correctness.
+`README.md` is the canonical onboarding doc and `research/RULES.md` is the canonical rules doc — read those for anything not covered here. This file is a curated cheat-sheet for things that are non-obvious or load-bearing for correctness.
+
+## Repo layout
+
+The Python engine, AI zoo, tests, GA tuners, and checked-in weights all live under **`research/`**. The browser frontend (`play/`, `index.html`) stays at the repo root. **Every Python command below must be run from inside `research/`** — the scripts resolve paths like `saved_best_weights/` and `artifacts/` relative to the current working directory.
+
+```
+mega-gem/
+├── index.html          # redirect to play/index.html
+├── play/               # vanilla-JS browser frontend (no build, no server)
+├── README.md
+├── CLAUDE.md
+└── research/           # Python engine + AI zoo + GA tuners + tests
+    ├── megagem/
+    ├── scripts/
+    ├── tests/
+    ├── saved_best_weights/
+    └── RULES.md
+```
 
 ## Commands
 
 ```bash
+cd research
+
 # Tests (stdlib unittest, no pytest, 120 tests, sub-second)
 python -m unittest discover
 python -m unittest tests.test_heuristic -v
@@ -27,8 +47,8 @@ python -m scripts.evolve_evo2 --opponent self_play              # tunes Evo2AI v
 python -m scripts.evolve_evo3                                   # tunes Evo3AI (vs_all = avg vs all 6 prior bots)
 python -m scripts.heatmap_pairwise                              # requires saved_best_weights/*.json
 
-# Browser frontend — no build, no server
-open play/index.html
+# Browser frontend — no build, no server (from repo root)
+open ../play/index.html
 ```
 
 ### Weights workflow

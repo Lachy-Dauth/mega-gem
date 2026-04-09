@@ -5,9 +5,18 @@ game, plus a small zoo of bidder AIs and a genetic-algorithm tuner that
 breeds the strongest one. Also (eventually) an online version.
 
 The full game rules — turn structure, bid ties, mission categories, value
-charts — live in [`RULES.md`](RULES.md). This README covers everything
-*around* the rules: how to run the game, what each AI does, how to test
-them, how to evolve a stronger one, and how to read the benchmark plots.
+charts — live in [`research/RULES.md`](research/RULES.md). This README
+covers everything *around* the rules: how to run the game, what each AI
+does, how to test them, how to evolve a stronger one, and how to read
+the benchmark plots.
+
+> **Repo layout note.** The Python engine, AI zoo, tests, GA tuners, and
+> checked-in weights all live under **`research/`**. The browser
+> frontend (`play/` and the top-level `index.html` redirect) stays at
+> the repo root. **Every Python command in this README assumes you are
+> inside `research/`** — the scripts resolve paths like
+> `saved_best_weights/` and `artifacts/` relative to the current working
+> directory.
 
 ---
 
@@ -39,20 +48,23 @@ python -m venv .venv
 source .venv/bin/activate          # or .venv\Scripts\activate on Windows
 
 # 3. The Python game + tests need no third-party deps.
-#    matplotlib is only required for the GA + heatmap scripts in scripts/.
+#    matplotlib is only required for the GA + heatmap scripts in research/scripts/.
 pip install matplotlib              # only if you want plots
 
-# 4. Run the test suite (should print "Ran 120 tests ... OK")
+# 4. All Python commands live under research/ — switch there.
+cd research
+
+# 5. Run the test suite (should print "Ran 120 tests ... OK")
 python -m unittest discover
 
-# 5. Play a game against three Heuristic AIs in the terminal
+# 6. Play a game against three Heuristic AIs in the terminal
 python -m megagem
 
-# 6. Watch four AIs play each other end-to-end on chart E
+# 7. Watch four AIs play each other end-to-end on chart E
 python -m megagem --all-ai --ai adaptive --chart E --seed 42
 
-# 7. Or play in your browser — no server, no build step:
-open play/index.html       # macOS; on Linux use `xdg-open`, Windows `start`
+# 8. Or play in your browser — no server, no build step (from repo root):
+open ../play/index.html    # macOS; on Linux use `xdg-open`, Windows `start`
 ```
 
 If everything above worked you have a clean install.
@@ -63,57 +75,61 @@ If everything above worked you have a clean install.
 
 ```
 mega-gem/
-├── megagem/                 # Game engine + AIs (the bit you import)
-│   ├── __main__.py          # Terminal CLI entry point: `python -m megagem`
-│   ├── cards.py             # Gem / Auction / Treasure / Loan / Invest cards
-│   ├── engine.py            # setup_game, play_round, score_game
-│   ├── explain.py           # --debug rationale-printing wrapper
-│   ├── missions.py          # Mission deck (shields / pendants / crowns)
-│   ├── players/             # Player ABC + every AI (one module per class)
-│   │   ├── base.py              # Player ABC
-│   │   ├── helpers.py           # Shared value / discount-feature math
-│   │   ├── random_ai.py         # RandomAI
-│   │   ├── human.py             # HumanPlayer
-│   │   ├── heuristic.py         # HeuristicAI
-│   │   ├── adaptive_heuristic.py  # AdaptiveHeuristicAI
-│   │   ├── hypergeometric.py    # HypergeometricAI
-│   │   ├── hyper_adaptive.py    # HyperAdaptiveAI
-│   │   ├── hyper_adaptive_split.py  # HyperAdaptiveSplitAI (GA target)
-│   │   ├── evo2.py              # Evo2AI (GA target)
-│   │   └── evo3.py              # Evo3AI (GA target, current champion)
-│   ├── render.py            # Pretty-printing for the CLI
-│   ├── state.py             # GameState / PlayerState dataclasses
-│   └── value_charts.py      # The five value charts A–E
+├── index.html               # Redirect to play/index.html (for GitHub Pages)
 ├── play/                    # Browser frontend — open index.html, no server
 │   ├── index.html           # Menu + game screens
 │   ├── style.css            # Dark theme, color-coded gems
 │   ├── megagem.js           # JS port of the engine + RandomAI, HeuristicAI, HyperAdaptiveSplitAI, Evo2AI, Evo3AI
 │   └── ui.js                # UI controller / state machine
-├── scripts/                 # Standalone runnables (NOT imported by megagem/)
-│   ├── evolve_hyper_adaptive.py   # GA tuner for HyperAdaptiveSplitAI
-│   ├── evolve_evo2.py             # GA tuner for Evo2AI
-│   ├── evolve_evo3.py             # GA tuner for Evo3AI
-│   └── heatmap_pairwise.py        # All-vs-all win-rate matrix plot
-├── tests/                   # unittest suite (120 tests, stdlib only)
-│   ├── test_cards.py
-│   ├── test_engine.py
-│   ├── test_heuristic.py    # Big file — covers every AI's helper math
-│   ├── test_evo2.py         # Evo2AI-specific helpers + head-to-head
-│   ├── test_evo3.py         # Evo3AI-specific helpers + head-to-head
-│   ├── test_missions.py
-│   └── test_scoring.py
-├── saved_best_weights/      # Checked-in GA outputs — the CLI reads these
-│   ├── best_weights_4p.json                # HyperAdaptiveSplitAI
-│   ├── best_weights_evo2_vs_old_4p.json    # Evo2AI
-│   └── best_weights_evo3_vs_all_4p.json    # Evo3AI (current champion)
-├── artifacts/               # Transient GA output (gitignored)
 ├── README.md
-└── RULES.md                 # The actual game rules — read this first
+├── CLAUDE.md                # Cheat-sheet for Claude Code
+└── research/                # Everything Python — run commands from here
+    ├── megagem/                 # Game engine + AIs (the bit you import)
+    │   ├── __main__.py          # Terminal CLI entry point: `python -m megagem`
+    │   ├── cards.py             # Gem / Auction / Treasure / Loan / Invest cards
+    │   ├── engine.py            # setup_game, play_round, score_game
+    │   ├── explain.py           # --debug rationale-printing wrapper
+    │   ├── missions.py          # Mission deck (shields / pendants / crowns)
+    │   ├── players/             # Player ABC + every AI (one module per class)
+    │   │   ├── base.py              # Player ABC
+    │   │   ├── helpers.py           # Shared value / discount-feature math
+    │   │   ├── random_ai.py         # RandomAI
+    │   │   ├── human.py             # HumanPlayer
+    │   │   ├── heuristic.py         # HeuristicAI
+    │   │   ├── adaptive_heuristic.py  # AdaptiveHeuristicAI
+    │   │   ├── hypergeometric.py    # HypergeometricAI
+    │   │   ├── hyper_adaptive.py    # HyperAdaptiveAI
+    │   │   ├── hyper_adaptive_split.py  # HyperAdaptiveSplitAI (GA target)
+    │   │   ├── evo2.py              # Evo2AI (GA target)
+    │   │   └── evo3.py              # Evo3AI (GA target, current champion)
+    │   ├── render.py            # Pretty-printing for the CLI
+    │   ├── state.py             # GameState / PlayerState dataclasses
+    │   └── value_charts.py      # The five value charts A–E
+    ├── scripts/                 # Standalone runnables (NOT imported by megagem/)
+    │   ├── evolve_hyper_adaptive.py   # GA tuner for HyperAdaptiveSplitAI
+    │   ├── evolve_evo2.py             # GA tuner for Evo2AI
+    │   ├── evolve_evo3.py             # GA tuner for Evo3AI
+    │   └── heatmap_pairwise.py        # All-vs-all win-rate matrix plot
+    ├── tests/                   # unittest suite (120 tests, stdlib only)
+    │   ├── test_cards.py
+    │   ├── test_engine.py
+    │   ├── test_heuristic.py    # Big file — covers every AI's helper math
+    │   ├── test_evo2.py         # Evo2AI-specific helpers + head-to-head
+    │   ├── test_evo3.py         # Evo3AI-specific helpers + head-to-head
+    │   ├── test_missions.py
+    │   └── test_scoring.py
+    ├── saved_best_weights/      # Checked-in GA outputs — the CLI reads these
+    │   ├── best_weights_4p.json                # HyperAdaptiveSplitAI
+    │   ├── best_weights_evo2_vs_old_4p.json    # Evo2AI
+    │   └── best_weights_evo3_vs_all_4p.json    # Evo3AI (current champion)
+    ├── artifacts/               # Transient GA output (gitignored)
+    └── RULES.md                 # The actual game rules — read this first
 ```
 
 The Python CLI, engine, and tests have **zero** third-party dependencies
 — stdlib only. matplotlib is needed only for the GA + heatmap scripts in
-`scripts/`. The browser frontend in `play/` has no dependencies at all.
+`research/scripts/`. The browser frontend in `play/` has no dependencies
+at all.
 
 ---
 
@@ -185,16 +201,17 @@ tie-break).
 ### Run it
 
 ```bash
-# Just open the file in any modern browser:
+# Just open the file in any modern browser (paths are from the repo root):
 open play/index.html               # macOS
 xdg-open play/index.html           # Linux
 start play/index.html              # Windows
 # Or double-click it in your file manager.
 ```
 
-You can also serve it with any static server (e.g.
-`python -m http.server` from inside `play/`) if you'd rather hit it
-over HTTP.
+The browser frontend lives at the repo root, *not* under `research/`, so
+these commands are from `mega-gem/`, not `mega-gem/research/`. You can
+also serve it with any static server (e.g. `python -m http.server` from
+inside `play/`) if you'd rather hit it over HTTP.
 
 ### Menu options
 
