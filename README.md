@@ -87,7 +87,7 @@ mega-gem/
 ├── play/                    # Browser frontend — open index.html, no server
 │   ├── index.html           # Menu + game screens
 │   ├── style.css            # Dark theme, color-coded gems
-│   ├── megagem.js           # JS port of the engine + RandomAI + HeuristicAI
+│   ├── megagem.js           # JS port of the engine + RandomAI, HeuristicAI, HyperAdaptiveSplitAI, Evo2AI, Evo3AI
 │   └── ui.js                # UI controller / state machine
 ├── scripts/                 # Standalone runnables (NOT imported by megagem/)
 │   ├── evolve_hyper_adaptive.py   # GA tuner for HyperAdaptiveSplitAI
@@ -202,7 +202,7 @@ over HTTP.
 |--------|---------|-------|
 | Your name | free text | Shown on opponents' boards and the score table. |
 | Players | 3 / 4 / 5 | You + 2/3/4 AI opponents. Starting coins/hand size scale per the rules. |
-| AI difficulty | Random / Heuristic | "Random" is the floor; "Heuristic" is a faithful port of the Python `HeuristicAI`. |
+| AI difficulty | Random / Heuristic / Evolved / Evo2 / Evo3 | All five Python bots (`RandomAI`, `HeuristicAI`, `HyperAdaptiveSplitAI`, `Evo2AI`, `Evo3AI`) are ported into `play/megagem.js` and exposed in the menu. GA-evolved weight sets are hard-coded into the JS file so no server / fetch is needed. Evo3 is selected by default. |
 | Value chart | A–E | Same five charts the Python engine uses. Chart E is the trickiest. |
 | Random seed | optional | Leave blank for a random game; set a number to make the deck order reproducible. |
 
@@ -235,9 +235,16 @@ over HTTP.
 6. When the auction or gem deck runs out, the score screen appears
    with everyone's per-category breakdown and a **Play again** button.
 
-> The browser AI is the JS port of `HeuristicAI`. The hypergeometric
-> and GA-evolved AIs are Python-only — if you want to play against
-> *those*, the terminal CLI is currently the only path.
+> The browser frontend ships hand-written JS ports of `RandomAI`,
+> `HeuristicAI`, `HyperAdaptiveSplitAI`, `Evo2AI`, and `Evo3AI`. The
+> intermediate Python-only bots (`AdaptiveHeuristicAI`,
+> `HypergeometricAI`, `HyperAdaptiveAI`) are superseded by the
+> `HyperAdaptiveSplit`/`Evo*` line and live only in the terminal CLI.
+> Evo3's per-category opponent-delta ring buffer — with the same
+> `_last_default_bid` baseline-caching trick — is re-implemented in JS
+> and fed by an `observeRound` hook `play/ui.js` fires right after
+> each auction resolves, so browser Evo3 learns live during a game
+> just like its Python counterpart.
 
 ---
 
@@ -516,7 +523,7 @@ perturb an older champion's weights:
 | Script | Target AI | Weights | Default opponents |
 |--------|-----------|---------|-------------------|
 | `evolve_hyper_adaptive.py` | `HyperAdaptiveSplitAI` | 18 | 3× `HeuristicAI` (fixed) |
-| `evolve_evo2.py` | `Evo2AI` | 19 | self-play (rotating seeds) |
+| `evolve_evo2.py` | `Evo2AI` | 19 | averaged vs all 6 prior bots |
 | `evolve_evo3.py` | `Evo3AI` | 25 | averaged vs all 6 prior bots |
 
 All three write JSON + a PNG history plot under `artifacts/` (gitignored).
@@ -554,31 +561,36 @@ python -m scripts.evolve_hyper_adaptive \
 
 ### `scripts/evolve_evo2.py`
 
-Tunes the 19 constants of `Evo2AI`. Two intentional differences from
-the hyper-adaptive GA:
+Tunes the 19 constants of `Evo2AI`. Same rotating-seed + held-out
+re-eval trick as `evolve_evo3`, with four opponent modes:
 
-* **Co-evolution by default.** Each individual is evaluated against
-  three opponents drawn (with replacement) from the same generation's
-  population. `--opponent old_evo` and `--opponent old_evo2` swap in
-  fixed opponents loaded from `saved_best_weights/`.
-* **Rotating fitness seeds.** Each generation uses a fresh seed offset
-  `(seed + gen + 1) * 9973` instead of a fixed range. Consequence:
-  best-fitness is no longer monotone (a generation can land on a harder
-  seed batch and the printed best dips). To recover a robust final
-  winner, the script re-evaluates the top-5 elites against the *last*
-  population on a separate seed range and writes that winner as the
-  final output.
+| `--opponent` | Opponents | Notes |
+|--------------|-----------|-------|
+| `vs_all` *(default)* | Pools across all 6 prior bots (Random, Heuristic, Adaptive, Hyper, HyperAdapt, EvolvedSplit) | **6× longer per generation**; avoids overfit to any single baseline. EvolvedSplit is loaded from `saved_best_weights/`; the rest use class defaults. |
+| `self_play` | Sampled from the current Evo2 population | Pure co-evolution. |
+| `old_evo` | Fixed `HyperAdaptiveSplitAI` from `saved_best_weights/` | Train specifically to beat the pre-Evo2 champion. |
+| `old_evo2` | Fixed `Evo2AI` from `saved_best_weights/` | Strict refinement over the previous best Evo2. |
 
 ```bash
-# Self-play (default).
+# Default: averaged fitness against all 6 prior bots.
 python -m scripts.evolve_evo2
 
-# Train against the old HyperAdaptiveSplit champion.
+# Head-to-head vs the HyperAdaptiveSplit champion.
 python -m scripts.evolve_evo2 --opponent old_evo
 ```
 
+**Rotating fitness seeds.** Each generation uses a fresh seed offset
+`(seed + gen + 1) * 9973` instead of a fixed range. Consequence:
+best-fitness is no longer monotone (a generation can land on a harder
+seed batch and the printed best dips). To recover a robust final
+winner, the script re-evaluates the top-5 elites on the *same*
+provider distribution and a held-out seed range, then writes that
+winner as the final output.
+
 Writes `artifacts/best_weights_evo2_{tag}_{N}p.json` where `tag` is
-`self`, `vs_old`, or `vs_old_evo2`.
+`vs_all`, `self`, `vs_old`, or `vs_old_evo2`. In `vs_all` mode stdout
+also prints a per-opponent breakdown so you can see which baselines
+the new champion still struggles against.
 
 ### `scripts/evolve_evo3.py`
 
@@ -626,12 +638,12 @@ by generation 20–25 and finishes around 0.85–0.88 vs 3× `HeuristicAI`.
 On held-out seeds the same weights give **~70–75% win rate** averaged
 across all charts.
 
-`evolve_evo3 --opponent vs_all` is the current strongest recipe —
-held-out pooled fitness ~0.70 across all 6 prior bots. The per-opponent
-breakdown is uneven: Evo3 crushes Random (~96%) and dominates the
-heuristic family (~72–83%) but only wins ~24% head-to-head against
-Evo2 on the held-out seeds, reflecting just how close those two AIs
-are to each other.
+`evolve_evo2 --opponent vs_all` and `evolve_evo3 --opponent vs_all`
+are the current strongest recipes — both reach a held-out pooled
+fitness of roughly 0.70 across all 6 prior bots. The per-opponent
+breakdown is uneven: Evo2/Evo3 crush Random (>95%) and dominate the
+heuristic family (~70–85%) but are close enough to each other that
+small population / generation changes can flip the head-to-head.
 
 That's the one number that matters: training fitness is just a signal
 the GA optimises — the held-out heatmap (next section) is where you

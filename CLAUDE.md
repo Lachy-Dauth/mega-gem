@@ -22,8 +22,8 @@ python -m megagem --ai evo3                                     # play vs the cu
 
 # GA tuners + heatmap (need matplotlib)
 python -m scripts.evolve_hyper_adaptive                         # tunes HyperAdaptiveSplitAI vs 3× HeuristicAI
-python -m scripts.evolve_evo2                                   # tunes Evo2AI (self-play by default)
-python -m scripts.evolve_evo2 --opponent old_evo                # tunes Evo2AI vs HyperAdaptiveSplitAI
+python -m scripts.evolve_evo2                                   # tunes Evo2AI (vs_all = avg vs all 6 prior bots)
+python -m scripts.evolve_evo2 --opponent self_play              # tunes Evo2AI via self-play
 python -m scripts.evolve_evo3                                   # tunes Evo3AI (vs_all = avg vs all 6 prior bots)
 python -m scripts.heatmap_pairwise                              # requires saved_best_weights/*.json
 
@@ -42,7 +42,7 @@ cp artifacts/best_weights_evo3_vs_all_4p.json saved_best_weights/
 
 The `saved_best_weights/` folder currently holds:
 - `best_weights_4p.json` — HyperAdaptiveSplitAI (89% vs 3× HeuristicAI)
-- `best_weights_evo2_vs_old_4p.json` — Evo2AI trained vs HyperAdaptiveSplitAI (69%)
+- `best_weights_evo2_vs_old_4p.json` — Evo2AI trained vs HyperAdaptiveSplitAI (69%) *(the `--opponent vs_all` retrain is in progress; promote the fresh file into `saved_best_weights/` when it lands)*
 - `best_weights_evo3_vs_all_4p.json` — Evo3AI trained against all 6 prior bots (70% pooled)
 
 ## Dependencies
@@ -92,10 +92,13 @@ Three GA scripts, intentionally separate so newer tuners don't perturb older cha
 - Fitness cache keyed on `tuple(round(w, 4) for w in weights)`.
 - Outputs `artifacts/best_weights_{N}p.json`. The CLI's `--ai evolved` loads it from `saved_best_weights/` after you copy it there.
 
-**`scripts/evolve_evo2.py`** — tunes the 19 constants of `Evo2AI`. Two intentional differences from the old GA:
+**`scripts/evolve_evo2.py`** — tunes the 19 constants of `Evo2AI`. Four opponent modes:
 
-- **Self-play, not vs HeuristicAI.** Each individual is evaluated by playing against three opponents drawn (with replacement) from the same generation's population — co-evolution rather than fixed-baseline tuning. Self-as-opponent is allowed at probability `1/pop_size`; not worth filtering out. `--opponent old_evo` and `--opponent old_evo2` modes swap in fixed opponents loaded from `saved_best_weights/`.
-- **Rotating fitness seeds.** Each generation uses a fresh seed offset `(seed + gen + 1) * 9973` instead of a fixed seed range. Consequence: best-fitness is no longer monotone (a generation can land on a harder seed batch and the printed best dips). To recover a robust final winner, the script does a final held-out re-evaluation of the top-5 elites against the *last* population on a separate seed range, and writes that winner to `artifacts/best_weights_evo2_{tag}_{N}p.json`.
+- **`--opponent vs_all` (default).** Mirrors `evolve_evo3`: averages fitness across six providers — one per previous bot type (Random, Heuristic, Adaptive, Hyper, HyperAdapt, EvolvedSplit). EvolvedSplit loads the GA-tuned `HyperAdaptiveSplitAI` weights from `saved_best_weights/`; the other five use class defaults. **6× longer per generation** than single-opponent modes. Writes `artifacts/best_weights_evo2_vs_all_{N}p.json`.
+- **`--opponent self_play`.** Each individual is evaluated by playing against three opponents drawn (with replacement) from the same generation's population — co-evolution rather than fixed-baseline tuning. Self-as-opponent is allowed at probability `1/pop_size`; not worth filtering out.
+- **`--opponent old_evo`.** Fixed `HyperAdaptiveSplitAI` opponents loaded from `saved_best_weights/`.
+- **`--opponent old_evo2`.** Fixed `Evo2AI` opponents loaded from `saved_best_weights/` (lookup chain matches `--ai evo2`).
+- **Rotating fitness seeds.** Each generation uses a fresh seed offset `(seed + gen + 1) * 9973` instead of a fixed seed range. Consequence: best-fitness is no longer monotone (a generation can land on a harder seed batch and the printed best dips). To recover a robust final winner, the script does a final held-out re-evaluation of the top-5 elites on the same provider distribution as training, and writes that winner to `artifacts/best_weights_evo2_{tag}_{N}p.json`.
 
 **`scripts/evolve_evo3.py`** — tunes the 25 constants of `Evo3AI`. Three opponent modes:
 
@@ -118,5 +121,6 @@ Three GA scripts, intentionally separate so newer tuners don't perturb older cha
 - **Always invoke as `python -m megagem`.** `python megagem/__main__.py` breaks relative imports.
 - **Reveal-a-gem is mandatory.** If `choose_gem_to_reveal` returns a gem not in hand, the engine substitutes a random one — that's a safety net for buggy AIs, not a feature to rely on.
 - **`LoanCard` bids exceed your coins.** `max_legal_bid` returns `coins + loan_amount` because the loan is conceptually paid first. Always route AI bids through `clamp_bid` rather than trusting raw output.
-- **Browser AI is a port, not a binding.** Only `RandomAI` and `HeuristicAI` exist in `play/megagem.js`. Hypergeometric and GA-evolved AIs are Python-only — to play against them, use the terminal CLI.
+- **Browser AI is a port, not a binding.** `play/megagem.js` contains hand-written JS ports of `RandomAI`, `HeuristicAI`, `HyperAdaptiveSplitAI`, `Evo2AI`, and `Evo3AI` — including the full hypergeometric helpers, exact `_expected_rounds_remaining`, mission-probability delta, and (for Evo3) the per-category opponent-delta ring buffer with the same `_last_default_bid` baseline-caching trick the Python version uses. The difficulty menu in `play/index.html` exposes all five. `AdaptiveHeuristicAI`, `HypergeometricAI`, and `HyperAdaptiveAI` are Python-only (superseded by `HyperAdaptiveSplitAI` and `Evo*AI`). Rule and weight changes must be mirrored across both implementations or they'll silently diverge.
+- **JS Evo3 needs the `observeRound` hook fired from `play/ui.js`.** Unlike the Python engine's `play_round`, the JS game loop lives in `ui.js` → `resolveAuction`. Right after the `apply*` call it walks every non-human `playerStates[i].ai` and invokes `observeRound(state, i, { auction, bids })`. If you ever rewrite `resolveAuction`, keep that call or Evo3 becomes Evo2 in the browser (the ring buffer stays empty).
 - **`--ai evolved` / `--ai evo2` / `--ai evo3` need a weights file in `saved_best_weights/`.** `evolved` exits with a clear error if nothing is found; `evo2` and `evo3` fall back to class defaults with a stderr warning. Weights in `artifacts/` are ignored by the CLI — you must copy them over by hand.
