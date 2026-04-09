@@ -25,6 +25,14 @@
     box-sizing: border-box;
 }
 
+/* Make the HTML `hidden` attribute win over any author `display` rule.
+   Without this, elements like `.screen { display: flex }` and
+   `#host-controls.row { display: flex }` override the UA stylesheet's
+   `[hidden] { display: none }` and all screens end up visible at once. */
+[hidden] {
+    display: none !important;
+}
+
 body {
     margin: 0;
     padding: 0;
