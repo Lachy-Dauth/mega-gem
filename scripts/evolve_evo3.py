@@ -213,6 +213,7 @@ def _load_evo2_weights(num_players: int) -> tuple[list[float], Path]:
     vector and return a sentinel path so the caller can log "defaults".
     """
     candidates = [
+        Path("saved_best_weights") / f"best_weights_evo2_vs_all_{num_players}p.json",
         Path("saved_best_weights") / f"best_weights_evo2_vs_old_evo2_{num_players}p.json",
         Path("saved_best_weights") / f"best_weights_evo2_vs_old_{num_players}p.json",
         Path("saved_best_weights") / f"best_weights_evo2_self_{num_players}p.json",

@@ -114,21 +114,25 @@ def _evo2_factory(name: str, *, seed: int, num_players: int) -> Player:
     Lookup order (first match wins), all paths rooted in
     ``saved_best_weights/``:
 
-    1. ``best_weights_evo2_vs_old_evo2_{N}p.json`` — trained against
-       an earlier Evo2AI snapshot. Top priority because this is a
-       strict refinement of "best Evo2 we've ever produced".
-    2. ``best_weights_evo2_vs_old_{N}p.json`` — trained against the
+    1. ``best_weights_evo2_vs_all_{N}p.json`` — trained with the
+       fitness averaged across all six previous bots. Top priority:
+       that is the training regime ``scripts/evolve_evo2.py`` uses by
+       default.
+    2. ``best_weights_evo2_vs_old_evo2_{N}p.json`` — trained against
+       an earlier Evo2AI snapshot.
+    3. ``best_weights_evo2_vs_old_{N}p.json`` — trained against the
        pre-Evo2 champion (HyperAdaptiveSplitAI).
-    3. ``best_weights_evo2_self_{N}p.json`` — trained via self-play
+    4. ``best_weights_evo2_self_{N}p.json`` — trained via self-play
        within the Evo2 population.
-    4. ``best_weights_evo2_{N}p.json`` — legacy un-tagged path.
-    5. ``best_weights_evo2.json`` — global fallback.
+    5. ``best_weights_evo2_{N}p.json`` — legacy un-tagged path.
+    6. ``best_weights_evo2.json`` — global fallback.
 
     If none exist, falls back to ``Evo2AI``'s class defaults with a
     one-time stderr warning so first-time users can play immediately
     without running the GA.
     """
     candidates = _expand_weight_candidates([
+        f"best_weights_evo2_vs_all_{num_players}p.json",
         f"best_weights_evo2_vs_old_evo2_{num_players}p.json",
         f"best_weights_evo2_vs_old_{num_players}p.json",
         f"best_weights_evo2_self_{num_players}p.json",

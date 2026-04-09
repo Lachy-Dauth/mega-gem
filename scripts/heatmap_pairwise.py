@@ -94,6 +94,7 @@ def make_factories() -> dict:
     # so the column is always present in the heatmap — otherwise a fresh
     # clone without an Evo2 GA run would drop the most interesting row.
     evo2 = _try_load(
+        "best_weights_evo2_vs_all_4p.json",
         "best_weights_evo2_vs_old_evo2_4p.json",
         "best_weights_evo2_vs_old_4p.json",
         "best_weights_evo2_self_4p.json",
