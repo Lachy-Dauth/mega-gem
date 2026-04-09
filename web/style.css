@@ -471,6 +471,109 @@ button:disabled {
     font-size: 17px;
 }
 
+/* --- Single player CTA + button-link ------------------------------ */
+
+.single-player-card {
+    border-color: var(--accent);
+    background: linear-gradient(135deg,
+        rgba(107, 140, 255, 0.12),
+        var(--bg-card) 70%);
+}
+
+.button-link {
+    display: inline-block;
+    text-decoration: none;
+    text-align: center;
+    padding: 12px 18px;
+    border-radius: 6px;
+    margin-top: 4px;
+    font-size: 16px;
+}
+
+/* --- Leaderboards -------------------------------------------------- */
+
+.leaderboard-card {
+    max-width: 900px;
+}
+
+.leaderboard-stats {
+    margin-bottom: 12px;
+    font-style: italic;
+}
+
+.leaderboard-tables {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.leaderboard-section h3 {
+    margin: 0 0 8px;
+    color: var(--text);
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.leaderboard-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: var(--bg-card-alt);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.leaderboard-table th,
+.leaderboard-table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.leaderboard-table th {
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+}
+
+.leaderboard-table tr:last-child td {
+    border-bottom: none;
+}
+
+.leaderboard-table .ai-name {
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.leaderboard-table .win-rate {
+    font-weight: 700;
+    color: var(--success);
+    text-align: right;
+}
+
+.leaderboard-table .games {
+    color: var(--muted);
+    text-align: right;
+}
+
+.leaderboard-table .rank-1 .win-rate {
+    color: var(--warn);
+}
+
+.leaderboard-empty {
+    color: var(--muted);
+    font-style: italic;
+    padding: 16px 8px;
+    text-align: center;
+    background: var(--bg-card-alt);
+    border-radius: 6px;
+}
+
 /* --- Chat panel ---------------------------------------------------- */
 
 .chat-card {

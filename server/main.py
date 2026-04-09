@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .ai_factory import AI_KINDS
+from .db import get_leaderboards, stats as db_stats
 from .protocol import serialize_state
 from .rooms import MAX_PLAYERS, MIN_PLAYERS, VALID_CHARTS, manager
 from .session import GameSession
@@ -38,6 +39,7 @@ logger = logging.getLogger("megagem.main")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = REPO_ROOT / "web"
+PLAY_DIR = REPO_ROOT / "play"
 
 
 app = FastAPI(title="MegaGem Multiplayer", version="0.1.0")
@@ -97,7 +99,7 @@ class RemoveSlotRequest(BaseModel):
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"status": "ok", "ai_kinds": list(AI_KINDS)}
+    return {"status": "ok", "ai_kinds": list(AI_KINDS), "db": db_stats()}
 
 
 @app.get("/api/config")
@@ -108,6 +110,21 @@ async def config() -> dict:
         "max_players": MAX_PLAYERS,
         "charts": list(VALID_CHARTS),
         "ai_kinds": list(AI_KINDS),
+    }
+
+
+@app.get("/api/leaderboard")
+async def leaderboard() -> dict:
+    """Bot win-rate leaderboards for 3p / 4p / 5p games.
+
+    Restricted to games with exactly one human seat (the
+    "vs one opponent" framing). Each entry is an AI kind with
+    games_played, wins, win_rate, and avg_score.
+    """
+    boards = get_leaderboards(player_counts=(3, 4, 5))
+    return {
+        "leaderboards": {str(k): v for k, v in boards.items()},
+        "stats": db_stats(),
     }
 
 
@@ -359,3 +376,14 @@ if WEB_DIR.exists():
         # The same SPA handles the lobby + game views — the client
         # reads ``location.pathname`` to pick up the room code.
         return FileResponse(str(WEB_DIR / "index.html"))
+
+
+# The offline single-player frontend lives under ``play/``. Mount it
+# alongside the multiplayer client so the multiplayer menu can link
+# to ``/play/`` without the user having to know about file:// URLs.
+if PLAY_DIR.exists():
+    app.mount(
+        "/play",
+        StaticFiles(directory=str(PLAY_DIR), html=True),
+        name="play",
+    )

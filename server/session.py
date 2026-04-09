@@ -39,6 +39,7 @@ from megagem.engine import (
 from megagem.players.base import Player
 
 from .ai_factory import build_ai
+from .db import record_game
 from .protocol import (
     serialize_auction,
     serialize_gem,
@@ -272,6 +273,27 @@ class GameSession:
                 "scores": serialize_scores(scores),
             })
             self._emit_state_snapshots()
+
+            # Persist for the leaderboards. We do this in the game
+            # thread so a slow disk write can't block the event loop;
+            # any failure is logged but never crashes the session.
+            try:
+                slot_records = [
+                    {
+                        "name": s.name,
+                        "kind": s.kind,
+                        "ai_kind": s.ai_kind,
+                    }
+                    for s in self.room.slots
+                ]
+                record_game(
+                    chart=self.room.chart,
+                    seed=self.room.seed,
+                    slots=slot_records,
+                    scores=scores,
+                )
+            except Exception:
+                logger.exception("failed to record game in db")
         except Exception:
             logger.exception("session %s crashed", self.room.code)
             self._emit({

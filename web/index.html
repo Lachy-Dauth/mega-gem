@@ -11,6 +11,7 @@
         <h1>MegaGem <span class="subtle">multiplayer</span></h1>
         <div class="topbar-actions">
             <span id="conn-status" class="conn-status" hidden></span>
+            <button id="topbar-leaderboard" class="ghost">Leaderboards</button>
             <a href="https://github.com/Lachy-Dauth/mega-gem" class="ghost" target="_blank" rel="noopener">GitHub</a>
             <button id="leave" class="ghost" hidden>Leave room</button>
         </div>
@@ -20,8 +21,20 @@
 
         <!-- ===================== MENU ===================== -->
         <section id="screen-menu" class="screen">
+            <div class="card single-player-card">
+                <h2>Single player</h2>
+                <p class="muted">Play offline against AI bots in your browser. No server, no
+                friends required — just you against the bots. Includes the
+                full lineup from RandomAI through Evo3.</p>
+                <a id="menu-singleplayer" class="primary button-link" href="/play/">
+                    Play single player →
+                </a>
+            </div>
+
             <div class="card">
-                <h2>New game</h2>
+                <h2>Multiplayer — new game</h2>
+                <p class="muted">Create a room and share the code with friends. Add AI seats
+                to fill out the table.</p>
                 <label class="field">
                     <span>Your name</span>
                     <input id="menu-name" type="text" maxlength="20" placeholder="Your display name">
@@ -44,7 +57,8 @@
             </div>
 
             <div class="card">
-                <h2>Join existing</h2>
+                <h2>Multiplayer — join existing</h2>
+                <p class="muted">Got a room code from a friend? Drop in here.</p>
                 <label class="field">
                     <span>Your name</span>
                     <input id="menu-name-join" type="text" maxlength="20" placeholder="Your display name">
@@ -174,6 +188,26 @@
                 <div class="card log-card">
                     <h3>Round log</h3>
                     <div id="g-log" class="log"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ===================== LEADERBOARD ===================== -->
+        <section id="screen-leaderboard" class="screen" hidden>
+            <div class="card leaderboard-card">
+                <h2>Bot leaderboards</h2>
+                <p class="muted">
+                    Win rate of each AI bot across recorded multiplayer games
+                    where there was exactly one human seat. Updates whenever a
+                    game finishes on this server.
+                </p>
+                <div id="leaderboard-stats" class="muted leaderboard-stats"></div>
+                <div id="leaderboard-tables" class="leaderboard-tables">
+                    <p class="muted">Loading…</p>
+                </div>
+                <div class="row">
+                    <button id="leaderboard-refresh" class="secondary">Refresh</button>
+                    <button id="leaderboard-back" class="primary">Back</button>
                 </div>
             </div>
         </section>

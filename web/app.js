@@ -49,12 +49,14 @@ function showScreen(id) {
     for (const s of document.querySelectorAll(".screen")) {
         s.hidden = s.id !== id;
     }
-    $("leave").hidden = id === "screen-menu";
+    // Leave button only shows when you're actually in a room flow.
+    const inRoom = id === "screen-lobby" || id === "screen-game" || id === "screen-end";
+    $("leave").hidden = !inRoom;
     // Chat is visible whenever the player is in a room (lobby + game).
     // The end screen also shows it so post-game trash talk still works.
-    const chatVisible = id === "screen-lobby" || id === "screen-game" || id === "screen-end";
-    $("chat-panel").hidden = !chatVisible;
-    $("conn-status").hidden = id === "screen-menu";
+    $("chat-panel").hidden = !inRoom;
+    // Only show the connection pill while there's an active WS.
+    $("conn-status").hidden = !inRoom;
 }
 
 function toast(message, kind = "info") {
@@ -672,6 +674,102 @@ function renderChat() {
 }
 
 // ---------------------------------------------------------------------------
+// Leaderboards
+// ---------------------------------------------------------------------------
+
+const AI_KIND_LABELS = {
+    random: "Random",
+    heuristic: "Heuristic",
+    adaptive: "Adaptive",
+    hyper: "Hypergeometric",
+    hyper_adapt: "Hyper-Adaptive",
+    evolved: "EvolvedSplit",
+    evo2: "Evo2",
+    evo3: "Evo3",
+};
+
+function aiLabel(kind) {
+    return AI_KIND_LABELS[kind] || kind;
+}
+
+async function openLeaderboard() {
+    showScreen("screen-leaderboard");
+    await refreshLeaderboard();
+}
+
+async function refreshLeaderboard() {
+    const tablesEl = $("leaderboard-tables");
+    const statsEl = $("leaderboard-stats");
+    tablesEl.innerHTML = "";
+    tablesEl.appendChild(el("p", "muted", "Loading…"));
+    try {
+        const data = await api("GET", "/api/leaderboard");
+        renderLeaderboards(data);
+        const s = data.stats || {};
+        statsEl.textContent = `Total games recorded: ${s.total_games ?? 0} (with humans: ${s.games_with_humans ?? 0})`;
+    } catch (e) {
+        tablesEl.innerHTML = "";
+        tablesEl.appendChild(el("p", "muted", `Failed to load leaderboards: ${e.message}`));
+        statsEl.textContent = "";
+    }
+}
+
+function renderLeaderboards(data) {
+    const tablesEl = $("leaderboard-tables");
+    tablesEl.innerHTML = "";
+    const boards = data.leaderboards || {};
+    for (const n of ["3", "4", "5"]) {
+        const section = el("div", "leaderboard-section");
+        section.appendChild(el("h3", "", `${n}-player games`));
+        const rows = boards[n] || [];
+        if (rows.length === 0) {
+            section.appendChild(el("div", "leaderboard-empty", "No games recorded yet."));
+        } else {
+            section.appendChild(buildLeaderboardTable(rows));
+        }
+        tablesEl.appendChild(section);
+    }
+}
+
+function buildLeaderboardTable(rows) {
+    const table = el("table", "leaderboard-table");
+    const thead = el("thead");
+    const headRow = el("tr");
+    for (const h of ["#", "AI", "Win rate", "W/G"]) {
+        headRow.appendChild(el("th", "", h));
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = el("tbody");
+    rows.forEach((row, i) => {
+        const tr = el("tr", `rank-${i + 1}`);
+        tr.appendChild(el("td", "", String(i + 1)));
+        tr.appendChild(el("td", "ai-name", aiLabel(row.ai_kind)));
+        const pct = (row.win_rate * 100).toFixed(1) + "%";
+        tr.appendChild(el("td", "win-rate", pct));
+        tr.appendChild(el("td", "games", `${row.wins}/${row.games_played}`));
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    return table;
+}
+
+function backFromLeaderboard() {
+    // Return to wherever the player came from. If they're in a room
+    // with an active WS, go back to lobby/game; otherwise the menu.
+    if (state.ws && state.roomCode) {
+        if (state.gameState) {
+            showScreen("screen-game");
+        } else {
+            showScreen("screen-lobby");
+        }
+    } else {
+        showScreen("screen-menu");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
 
@@ -700,6 +798,9 @@ function wireUp() {
         if (e.key === "Enter") submitBid();
     });
     $("chat-form").addEventListener("submit", onChatSubmit);
+    $("topbar-leaderboard").onclick = openLeaderboard;
+    $("leaderboard-refresh").onclick = refreshLeaderboard;
+    $("leaderboard-back").onclick = backFromLeaderboard;
     $("leave").onclick = leaveRoom;
     $("end-back").onclick = leaveRoom;
     window.addEventListener("beforeunload", () => {

@@ -338,6 +338,34 @@ Every WS message is JSON with a `"type"` field:
 | `POST` | `/api/rooms/{code}/configure` | (host) Change chart / seed in lobby. |
 | `POST` | `/api/rooms/{code}/remove_slot` | (host) Kick a seat. |
 | `POST` | `/api/rooms/{code}/start` | (host) Spin up the `GameSession` thread. |
+| `GET`  | `/api/leaderboard` | Bot win-rate leaderboards (3p / 4p / 5p) over recorded games. |
+
+The server also serves the offline single-player frontend at
+**`/play/`** and exposes a **Leaderboards** button in the topbar that
+hits `/api/leaderboard`.
+
+### Game-record database
+
+Every finished multiplayer game is persisted to a SQLite file via
+`server/db.py`. The schema is two tables (`games` + `game_players`)
+and the leaderboard query is a single GROUP BY filtered to games with
+exactly one human seat — that's the "vs one opponent" framing for the
+three leaderboards (3p / 4p / 5p).
+
+The file path is configurable:
+
+```bash
+# Default — relative to repo root
+data/megagem.db
+
+# Override (use this on Railway with a mounted volume)
+export MEGAGEM_DB_PATH=/data/megagem.db
+```
+
+> **Railway gotcha.** Railway's container filesystem is ephemeral, so
+> the default `data/megagem.db` gets wiped on every redeploy. To keep
+> stats across deploys, attach a Railway Volume and set
+> `MEGAGEM_DB_PATH` to a path inside it.
 
 ### Deploying to Railway
 
@@ -351,8 +379,12 @@ Nixpacks builder will pick it up without any manual config:
 4. The healthcheck at `/api/health` (configured in `railway.json`)
    gates the deploy.
 
-State is in-memory only — a redeploy wipes in-flight rooms. That's fine
-for the MVP; persistence (Redis or Postgres) is a later concern.
+Active room state is in-memory only — a redeploy wipes in-flight
+rooms. That's fine for the MVP; swap in Redis or Postgres for
+persistent rooms when it matters. The **finished-game record store**
+(`server/db.py`) is a SQLite file at `MEGAGEM_DB_PATH` and *is*
+persisted across deploys provided you point it at a Railway volume
+mount (see [Game-record database](#game-record-database) above).
 
 ### Limitations / next steps
 
@@ -362,7 +394,7 @@ for the MVP; persistence (Redis or Postgres) is a later concern.
   enough for ranked matches.
 - **Rooms are not persisted.** An in-memory `RoomManager`. A Railway
   restart drops every active game. Fine for now; swap in Redis when it
-  matters.
+  matters. (The game record DB *is* persisted — see above.)
 - **Single-process.** One uvicorn worker. Scaling horizontally requires
   moving room state out of process memory first.
 - **No spectators.** A WS connection is tied to a seat. Adding
