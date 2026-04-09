@@ -209,7 +209,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ai", type=str, default="heuristic",
                         choices=list(AI_FACTORIES),
                         help=("Which AI to use for opponents (and --all-ai players). "
-                              "`evolved` loads GA-tuned weights from artifacts/."))
+                              "`evolved`, `evo2`, and `evo3` load GA-tuned weights "
+                              "from saved_best_weights/."))
     args = parser.parse_args(argv)
 
     players = build_players(args.players, args.all_ai, args.debug, args.seed, args.ai)
