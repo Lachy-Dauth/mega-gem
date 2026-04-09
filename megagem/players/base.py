@@ -65,3 +65,28 @@ class Player(ABC):
         exception thrown here so a buggy override cannot break gameplay.
         """
         return []
+
+    # ------------------------------------------------------------------
+    # Optional post-round observation hook.
+    # ------------------------------------------------------------------
+    def observe_round(
+        self,
+        public_state: "GameState",
+        my_idx: int,
+        result: dict,
+    ) -> None:
+        """Observation hook called by the engine after each round resolves.
+
+        ``result`` is the dict returned by ``engine.play_round`` — it
+        contains ``"auction"``, ``"bids"`` (full list in seating order),
+        ``"winner_idx"``, ``"winning_bid"``, etc. ``my_idx`` is this
+        player's seat index so the implementation can look up its own
+        bid and compute deltas against opponents.
+
+        The default is a no-op so existing AIs are unaffected. AIs that
+        want to model opponent bidding behaviour override this to
+        accumulate history, but must treat it as observational only —
+        the engine has already applied the round's effects and is
+        about to start the next one.
+        """
+        return None

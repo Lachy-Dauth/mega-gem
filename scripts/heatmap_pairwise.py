@@ -32,6 +32,7 @@ from megagem.engine import is_game_over, play_round, score_game, setup_game
 from megagem.players import (
     AdaptiveHeuristicAI,
     Evo2AI,
+    Evo3AI,
     HeuristicAI,
     HyperAdaptiveAI,
     HyperAdaptiveSplitAI,
@@ -44,55 +45,81 @@ SEED_START = 200       # held out: GA trained on 0..9
 GAMES_PER_CHART = 200  # 1000 games per cell (5 charts × 200 seeds)
 
 
-def _try_load(*candidates: str) -> list[float] | None:
+# Weights are looked up ONLY in `saved_best_weights/` (checked-in
+# snapshots). `artifacts/` holds intermediate GA output that may not
+# reflect the canonical "best ever" — promote a fresh run by copying
+# its weights file into `saved_best_weights/`.
+_WEIGHTS_DIR = Path("saved_best_weights")
+
+
+def _try_load(*filenames: str) -> list[float] | None:
     """Return the weights from the first existing candidate path, else None."""
-    for candidate in candidates:
-        path = Path(candidate)
+    for filename in filenames:
+        path = _WEIGHTS_DIR / filename
         if path.exists():
             return json.loads(path.read_text())["weights"]
     return None
 
 
-def _load_evolved() -> list[float]:
-    """Load HyperAdaptiveSplitAI 4-player weights.
+def _load_evolved() -> list[float] | None:
+    """Load HyperAdaptiveSplitAI 4-player weights if present.
 
     Prefers ``best_weights_4p.json`` (per-seat-count) over the legacy
-    unsuffixed ``best_weights.json``, since the heatmap runs 4-player
-    games and per-seat weights are what the GA tunes for that seat
-    count. Errors loudly if neither exists.
+    unsuffixed ``best_weights.json``. Returns None (rather than raising)
+    so the heatmap can still run when the old GA hasn't been trained —
+    the cell for the old evolved AI is simply omitted.
     """
-    weights = _try_load(
-        "artifacts/best_weights_4p.json",
-        "artifacts/best_weights.json",
+    return _try_load(
+        "best_weights_4p.json",
+        "best_weights.json",
     )
-    if weights is None:
-        raise SystemExit(
-            "Neither artifacts/best_weights_4p.json nor "
-            "artifacts/best_weights.json exists — run "
-            "`python -m scripts.evolve_hyper_adaptive` first."
-        )
-    return weights
 
 
 def make_factories() -> dict:
-    evolved = _load_evolved()
     factories: dict = {
         "Random":       lambda name, seed: RandomAI(name, seed=seed),
         "Heuristic":    lambda name, seed: HeuristicAI(name, seed=seed),
         "Adaptive":     lambda name, seed: AdaptiveHeuristicAI(name, seed=seed),
         "Hyper":        lambda name, seed: HypergeometricAI(name, seed=seed),
         "HyperAdapt":   lambda name, seed: HyperAdaptiveAI(name, seed=seed),
-        "EvolvedSplit": lambda name, seed: HyperAdaptiveSplitAI.from_weights(
-            name, evolved, seed=seed
-        ),
     }
 
-    evo2 = _try_load(
-        "artifacts/best_weights_evo2_4p.json",
-    )
+    evolved = _load_evolved()
+    if evolved is not None:
+        factories["EvolvedSplit"] = lambda name, seed: HyperAdaptiveSplitAI.from_weights(
+            name, evolved, seed=seed
+        )
 
+    # Evo2: prefer the per-seat-count file but fall back to class defaults
+    # so the column is always present in the heatmap — otherwise a fresh
+    # clone without an Evo2 GA run would drop the most interesting row.
+    evo2 = _try_load(
+        "best_weights_evo2_vs_all_4p.json",
+        "best_weights_evo2_vs_old_evo2_4p.json",
+        "best_weights_evo2_vs_old_4p.json",
+        "best_weights_evo2_self_4p.json",
+        "best_weights_evo2_4p.json",
+        "best_weights_evo2.json",
+    )
     if evo2 is not None:
         factories["Evo2"] = lambda name, seed: Evo2AI.from_weights(name, evo2, seed=seed)
+    else:
+        factories["Evo2"] = lambda name, seed: Evo2AI(name, seed=seed)
+
+    # Evo3: same deal — always include it so the whole point of this
+    # script (comparing Evo3's opponent-pricing head vs everything else)
+    # is visible even on a fresh checkout.
+    evo3 = _try_load(
+        "best_weights_evo3_vs_all_4p.json",
+        "best_weights_evo3_vs_evo2_4p.json",
+        "best_weights_evo3_self_4p.json",
+        "best_weights_evo3_4p.json",
+        "best_weights_evo3.json",
+    )
+    if evo3 is not None:
+        factories["Evo3"] = lambda name, seed: Evo3AI.from_weights(name, evo3, seed=seed)
+    else:
+        factories["Evo3"] = lambda name, seed: Evo3AI(name, seed=seed)
 
     return factories
 

@@ -1360,6 +1360,283 @@ class Evo2AI {
     }
 }
 
+// ======================================================================
+// Evo3AI — JS port of megagem/players/evo3.py:Evo3AI
+//
+// Identical to Evo2AI except every head gains two opponent-pricing
+// features:
+//   * mean_delta — weighted mean of (max opponent bid − baseline) over
+//     the rounds this AI has already played.
+//   * std_delta  — weighted stddev of the same quantity.
+// "baseline" is what Evo3 *would have bid* with the default delta
+// values (0, 1), not its actual bid — that stable reference breaks the
+// feedback loop the actual bid would otherwise create.
+//
+// Observations in the matching category (treasure/invest/loan) are
+// counted with weight 4; others with weight 1. Defaults before any
+// history: (mean_delta=0, std_delta=1).
+//
+// `observeRound(state, myIdx, result)` is called by ui.js right after
+// each auction resolves and appends (category, max_opp − baseline) to
+// the per-instance history. `result` must carry `auction` and `bids`.
+//
+// 25 weights: treasure(9) + invest(8) + loan(8). The new pair on each
+// head is (w_mean_delta, w_std_delta) tacked onto the end of the Evo2
+// layout, so an Evo3 initialised with the Evo2 weights + 4 zeros
+// reproduces Evo2 behaviour exactly when the history is empty.
+// ======================================================================
+
+const _EVO3_CAT_TREASURE = "treasure";
+const _EVO3_CAT_INVEST   = "invest";
+const _EVO3_CAT_LOAN     = "loan";
+const _EVO3_MATCH_WEIGHT = 4.0;
+const _EVO3_OTHER_WEIGHT = 1.0;
+const _EVO3_DEFAULT_MEAN_DELTA = 0.0;
+const _EVO3_DEFAULT_STD_DELTA  = 1.0;
+
+function _weightedDeltaStats(history, currentCategory) {
+    if (history.length === 0) {
+        return [_EVO3_DEFAULT_MEAN_DELTA, _EVO3_DEFAULT_STD_DELTA];
+    }
+    let totalW = 0.0, totalX = 0.0, totalX2 = 0.0;
+    for (const [cat, delta] of history) {
+        const w = (cat === currentCategory) ? _EVO3_MATCH_WEIGHT : _EVO3_OTHER_WEIGHT;
+        totalW  += w;
+        totalX  += w * delta;
+        totalX2 += w * delta * delta;
+    }
+    if (totalW <= 0.0) {
+        return [_EVO3_DEFAULT_MEAN_DELTA, _EVO3_DEFAULT_STD_DELTA];
+    }
+    const mean = totalX / totalW;
+    const variance = Math.max(0.0, totalX2 / totalW - mean * mean);
+    return [mean, Math.sqrt(variance)];
+}
+
+class _Evo3TreasureModel {
+    // weights9: [bias, w_rounds, w_my, w_avg, w_top, w_ev, w_std,
+    //            w_mean_delta, w_std_delta]
+    constructor(w) {
+        this.bias         = w[0];
+        this.wRounds      = w[1];
+        this.wMy          = w[2];
+        this.wAvg         = w[3];
+        this.wTop         = w[4];
+        this.wEv          = w[5];
+        this.wStd         = w[6];
+        this.wMeanDelta   = w[7];
+        this.wStdDelta    = w[8];
+    }
+    bid(f, ev, std, meanDelta, stdDelta) {
+        return this.bias
+             + this.wRounds    * f.roundsRemaining
+             + this.wMy        * f.myCoins
+             + this.wAvg       * f.avgOppCoins
+             + this.wTop       * f.topOppCoins
+             + this.wEv        * ev
+             + this.wStd       * std
+             + this.wMeanDelta * meanDelta
+             + this.wStdDelta  * stdDelta;
+    }
+}
+
+class _Evo3AmountModel {
+    // weights8: [bias, w_rounds, w_my, w_avg, w_top, w_amount,
+    //            w_mean_delta, w_std_delta]
+    // Shared by the invest and loan heads — structurally identical.
+    constructor(w) {
+        this.bias         = w[0];
+        this.wRounds      = w[1];
+        this.wMy          = w[2];
+        this.wAvg         = w[3];
+        this.wTop         = w[4];
+        this.wAmount      = w[5];
+        this.wMeanDelta   = w[6];
+        this.wStdDelta    = w[7];
+    }
+    bid(f, amount, meanDelta, stdDelta) {
+        return this.bias
+             + this.wRounds    * f.roundsRemaining
+             + this.wMy        * f.myCoins
+             + this.wAvg       * f.avgOppCoins
+             + this.wTop       * f.topOppCoins
+             + this.wAmount    * amount
+             + this.wMeanDelta * meanDelta
+             + this.wStdDelta  * stdDelta;
+    }
+}
+
+// Evolved by scripts/evolve_evo3.py --opponent vs_all. 25-vector layout:
+// treasure(9) + invest(8) + loan(8). Numbers copied verbatim from
+// saved_best_weights/best_weights_evo3_vs_all_4p.json. 3p/5p fall back
+// to 4p until per-seat-count training runs produce their own files.
+const EVO3_WEIGHTS_4P = [
+    // treasure: bias, w_rounds, w_my, w_avg, w_top, w_ev, w_std, w_mean_delta, w_std_delta
+    0.9671062444221764, -0.22577743567106498, 0.06179431807120027,
+    0.13179333635966, 0.029817067443990482, 0.22808568787174874,
+    0.00826541378646068, 0.02088883506021053, -0.04065315920784615,
+    // invest: bias, w_rounds, w_my, w_avg, w_top, w_amount, w_mean_delta, w_std_delta
+    1.9428585631974362, 0.38197662141604993, -0.06693603814839288,
+    -0.42612717455166765, 0.32059485484031025, 0.2245769585294565,
+    -0.018375851882717283, -0.002632855943731513,
+    // loan: bias, w_rounds, w_my, w_avg, w_top, w_amount, w_mean_delta, w_std_delta
+    -0.3816101402754214, -0.21640338533739048, 0.17350712216597403,
+    0.05427180974084926, -0.08435772023559968, 0.337710214852521,
+    0.15583525951623678, -0.10407099542522064,
+];
+// TODO: replace once `python -m scripts.evolve_evo3 --num-players 3/5`
+// produces their own per-seat-count files.
+const EVO3_WEIGHTS_3P = EVO3_WEIGHTS_4P;
+const EVO3_WEIGHTS_5P = EVO3_WEIGHTS_4P;
+
+function evo3WeightsFor(numPlayers) {
+    if (numPlayers === 3) return EVO3_WEIGHTS_3P;
+    if (numPlayers === 4) return EVO3_WEIGHTS_4P;
+    if (numPlayers === 5) return EVO3_WEIGHTS_5P;
+    return EVO3_WEIGHTS_4P;
+}
+
+class Evo3AI {
+    constructor(name, rng, weights) {
+        if (!Array.isArray(weights) || weights.length !== 25) {
+            throw new Error("Evo3AI requires a 25-element weights array");
+        }
+        this.name = name;
+        this.isHuman = false;
+        this.rng = rng;
+        this.treasureModel = new _Evo3TreasureModel(weights.slice(0, 9));
+        this.investModel   = new _Evo3AmountModel(weights.slice(9, 17));
+        this.loanModel     = new _Evo3AmountModel(weights.slice(17, 25));
+        // [category, max_opp_bid − baseline_bid] per observed round.
+        this._oppHistory = [];
+        // Cached default-deltas ("baseline") bid from the most recent
+        // chooseBid call. observeRound reads and clears it. null when
+        // nothing has been cached (e.g. chooseBid wasn't called, or the
+        // cap was 0).
+        this._lastDefaultBid = null;
+    }
+
+    // Optional constructor helper — lets ui.js persist/restore opponent
+    // history across localStorage round-trips without touching private
+    // fields directly.
+    setOppHistory(history) {
+        this._oppHistory = Array.isArray(history) ? history.slice() : [];
+    }
+    getOppHistory() {
+        return this._oppHistory.slice();
+    }
+
+    chooseBid(state, myState, auction) {
+        const cap = maxLegalBid(myState, auction);
+        if (cap === 0) {
+            this._lastDefaultBid = 0;
+            return 0;
+        }
+        const f = _computeEvo2Features(state, myState);
+
+        if (auction.kind === "treasure") {
+            const [ev, std] = _treasureValueStats(auction, state, myState);
+            const [mD, sD] = _weightedDeltaStats(this._oppHistory, _EVO3_CAT_TREASURE);
+            const actualRaw  = this.treasureModel.bid(f, ev, std, mD, sD);
+            // Baseline: same features, same weights, delta inputs pinned
+            // to (0, 1). What the AI would bid with no history.
+            const defaultRaw = this.treasureModel.bid(
+                f, ev, std, _EVO3_DEFAULT_MEAN_DELTA, _EVO3_DEFAULT_STD_DELTA
+            );
+            const actualBid  = Math.max(0, Math.min(Math.floor(actualRaw),  cap));
+            this._lastDefaultBid = Math.max(0, Math.min(Math.floor(defaultRaw), cap));
+            return actualBid;
+        }
+
+        if (auction.kind === "invest") {
+            const [mD, sD] = _weightedDeltaStats(this._oppHistory, _EVO3_CAT_INVEST);
+            const actualRaw  = this.investModel.bid(f, auction.amount, mD, sD);
+            const defaultRaw = this.investModel.bid(
+                f, auction.amount, _EVO3_DEFAULT_MEAN_DELTA, _EVO3_DEFAULT_STD_DELTA
+            );
+            let actualBid  = Math.max(0, Math.min(Math.floor(actualRaw),  cap));
+            let defaultBid = Math.max(0, Math.min(Math.floor(defaultRaw), cap));
+            // Free money — the token-bid-if-zero rule applies to both so
+            // the recorded baseline matches what chooseBid would actually
+            // return for an empty history.
+            if (actualBid  === 0 && cap > 0) actualBid  = 1;
+            if (defaultBid === 0 && cap > 0) defaultBid = 1;
+            this._lastDefaultBid = defaultBid;
+            return actualBid;
+        }
+
+        if (auction.kind === "loan") {
+            const [mD, sD] = _weightedDeltaStats(this._oppHistory, _EVO3_CAT_LOAN);
+            const actualRaw  = this.loanModel.bid(f, auction.amount, mD, sD);
+            const defaultRaw = this.loanModel.bid(
+                f, auction.amount, _EVO3_DEFAULT_MEAN_DELTA, _EVO3_DEFAULT_STD_DELTA
+            );
+            const actualBid = Math.max(0, Math.min(Math.floor(actualRaw),  cap));
+            this._lastDefaultBid = Math.max(0, Math.min(Math.floor(defaultRaw), cap));
+            return actualBid;
+        }
+
+        this._lastDefaultBid = 0;
+        return 0;
+    }
+
+    // Hook called by ui.js right after the engine resolves an auction.
+    // `result` is { auction, bids } — `auction` is the just-resolved
+    // card and `bids` is the array of all-player bids at the same index
+    // order as state.playerStates. Uses the cached `_lastDefaultBid`
+    // (from this round's chooseBid) so the delta measurement doesn't
+    // depend on Evo3's learned response to its own history.
+    observeRound(state, myIdx, result) {
+        const baseline = this._lastDefaultBid;
+        this._lastDefaultBid = null;
+        if (!result || !result.auction) return;
+        const kind = result.auction.kind;
+        if (kind !== _EVO3_CAT_TREASURE
+            && kind !== _EVO3_CAT_INVEST
+            && kind !== _EVO3_CAT_LOAN) return;
+        if (baseline === null) return;
+        const bids = result.bids;
+        if (!Array.isArray(bids) || bids.length === 0) return;
+        let maxOpp = -Infinity;
+        for (let i = 0; i < bids.length; i++) {
+            if (i === myIdx) continue;
+            if (bids[i] > maxOpp) maxOpp = bids[i];
+        }
+        if (maxOpp === -Infinity) return;
+        this._oppHistory.push([kind, maxOpp - baseline]);
+    }
+
+    // Reveal logic is identical to HeuristicAI/Evo2AI — Evo3's redesign
+    // targets bidding only.
+    chooseGemToReveal(state, myState) {
+        const chart = state.chart;
+        const display = state.valueDisplay;
+        const myHolding = myState.collection;
+        const oppHolding = emptyGemCounter();
+        for (const ps of state.playerStates) {
+            if (ps === myState) continue;
+            for (const c of COLORS) oppHolding[c] += ps.collection[c] || 0;
+        }
+        let bestScore = null;
+        let bestCard = null;
+        for (const card of myState.hand) {
+            const color = card.color;
+            const current = display[color] || 0;
+            const delta = valueFor(chart, current + 1) - valueFor(chart, current);
+            const relative = (myHolding[color] || 0) - (oppHolding[color] || 0);
+            const netBenefit = delta * relative;
+            const tiebreak = -(myHolding[color] || 0);
+            if (bestScore === null
+                || netBenefit > bestScore[0]
+                || (netBenefit === bestScore[0] && tiebreak > bestScore[1])) {
+                bestScore = [netBenefit, tiebreak];
+                bestCard = card;
+            }
+        }
+        return bestCard || myState.hand[0];
+    }
+}
+
 // ---------- exports (attached to window for ui.js) ------------------------
 
 window.MegaGem = {
@@ -1384,12 +1661,17 @@ window.MegaGem = {
     HeuristicAI,
     HyperAdaptiveSplitAI,
     Evo2AI,
+    Evo3AI,
     evolvedWeightsFor,
     evo2WeightsFor,
+    evo3WeightsFor,
     EVOLVED_WEIGHTS_3P,
     EVOLVED_WEIGHTS_4P,
     EVOLVED_WEIGHTS_5P,
     EVO2_WEIGHTS_3P,
     EVO2_WEIGHTS_4P,
     EVO2_WEIGHTS_5P,
+    EVO3_WEIGHTS_3P,
+    EVO3_WEIGHTS_4P,
+    EVO3_WEIGHTS_5P,
 };

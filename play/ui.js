@@ -66,10 +66,12 @@ function buildMissionLookup() {
 }
 
 function aiKindOf(ai) {
-    // Order matters: Evo2AI must be checked before HyperAdaptiveSplitAI
-    // would have been (they're independent classes, but defensive in
-    // case someone refactors). HeuristicAI is checked last among the
-    // heuristic family because AdaptiveHeuristic could subclass it.
+    // Order matters: Evo3 and Evo2 must be checked before
+    // HyperAdaptiveSplitAI would have been (they're independent classes,
+    // but defensive in case someone refactors). HeuristicAI is checked
+    // last among the heuristic family because AdaptiveHeuristic could
+    // subclass it.
+    if (ai instanceof M.Evo3AI) return "evo3";
     if (ai instanceof M.Evo2AI) return "evo2";
     if (ai instanceof M.HyperAdaptiveSplitAI) return "evolved";
     if (ai instanceof M.HeuristicAI) return "heuristic";
@@ -78,18 +80,30 @@ function aiKindOf(ai) {
 }
 
 function serializeAI(ai) {
-    return {
+    const payload = {
         kind: aiKindOf(ai),
         rngSeed: ai.rng.seed,
         rngState: ai.rng.getState(),
     };
+    // Evo3 carries per-instance learning state — the opponent-delta
+    // history is the whole point of the bot. Persist it so a resumed
+    // game keeps whatever Evo3 learned before the reload.
+    if (ai instanceof M.Evo3AI) {
+        payload.oppHistory = ai.getOppHistory();
+    }
+    return payload;
 }
 
-function buildAI(name, savedAI, evolvedWeights, evo2Weights) {
+function buildAI(name, savedAI, evolvedWeights, evo2Weights, evo3Weights) {
     const rng = M.makeRng(savedAI.rngSeed, savedAI.rngState);
     if (savedAI.kind === "random")    return new M.RandomAI(name, rng);
     if (savedAI.kind === "heuristic") return new M.HeuristicAI(name, rng, { noise: true });
     if (savedAI.kind === "evo2")      return new M.Evo2AI(name, rng, evo2Weights);
+    if (savedAI.kind === "evo3") {
+        const ai = new M.Evo3AI(name, rng, evo3Weights);
+        if (Array.isArray(savedAI.oppHistory)) ai.setOppHistory(savedAI.oppHistory);
+        return ai;
+    }
     return new M.HyperAdaptiveSplitAI(name, rng, evolvedWeights);
 }
 
@@ -145,6 +159,7 @@ function deserializeSession(saved) {
     const numPlayers = ss.playerStates.length;
     const evolvedWeights = M.evolvedWeightsFor(numPlayers);
     const evo2Weights = M.evo2WeightsFor(numPlayers);
+    const evo3Weights = M.evo3WeightsFor(numPlayers);
 
     const playerStates = ss.playerStates.map((psSaved) => {
         let ai;
@@ -156,7 +171,7 @@ function deserializeSession(saved) {
                 chooseGemToReveal: () => null,
             };
         } else {
-            ai = buildAI(psSaved.name, psSaved.ai, evolvedWeights, evo2Weights);
+            ai = buildAI(psSaved.name, psSaved.ai, evolvedWeights, evo2Weights, evo3Weights);
         }
         return {
             name: psSaved.name,
@@ -265,6 +280,7 @@ function startGame() {
     const players = [human];
     const evolvedWeights = M.evolvedWeightsFor(numPlayers);
     const evo2Weights = M.evo2WeightsFor(numPlayers);
+    const evo3Weights = M.evo3WeightsFor(numPlayers);
     for (let i = 0; i < numPlayers - 1; i++) {
         const aiSeed = masterRng.int(2 ** 31);
         const aiRng = M.makeRng(aiSeed);
@@ -275,9 +291,15 @@ function startGame() {
             // is occasionally beatable / surprising.
             players.push(new M.HeuristicAI(aiNames[i], aiRng, { noise: true }));
         } else if (aiKind === "evo2") {
-            // Hardest: clean-slate evolved AI tuned against the previous
-            // champion. See megagem/players_evo2.py for the design notes.
+            // Hard: clean-slate evolved AI tuned against a frozen mix of
+            // previous bots. See megagem/players/evo2.py for the design notes.
             players.push(new M.Evo2AI(aiNames[i], aiRng, evo2Weights));
+        } else if (aiKind === "evo3") {
+            // Hardest: Evo2 + opponent-pricing awareness. Learns an
+            // opponent-delta history live during the game and feeds
+            // weighted (mean, std) back into every head. See
+            // megagem/players/evo3.py for the design notes.
+            players.push(new M.Evo3AI(aiNames[i], aiRng, evo3Weights));
         } else {
             // "evolved" — GA-tuned HyperAdaptiveSplitAI with the weight set
             // matched to this player count.
@@ -303,7 +325,9 @@ function startGame() {
             ? "heuristic+noise"
             : aiKind === "evo2"
                 ? "evo2"
-                : "evolved";
+                : aiKind === "evo3"
+                    ? "evo3"
+                    : "evolved";
     log(`Game started: ${numPlayers} players, chart ${chart}, AI = ${aiLabel}.`,
         "log-round");
     showScreen("game");
@@ -416,6 +440,16 @@ function resolveAuction(allBids) {
         log(`${winnerState.name} invests ${winningBid}; payout ${pendingAuction.amount} + locked.`,
             "log-detail");
     }
+
+    // Post-auction observation hook. Evo3 uses this to build up its
+    // opponent-delta history; other AIs don't implement it. The engine
+    // uses this same { auction, bids } result shape on the Python side,
+    // so the JS call site mirrors that exactly.
+    const observation = { auction: pendingAuction, bids: allBids };
+    state.playerStates.forEach((ps, i) => {
+        if (ps.isHuman || !ps.ai || typeof ps.ai.observeRound !== "function") return;
+        ps.ai.observeRound(state, i, observation);
+    });
 
     state.lastWinnerIdx = winnerIdx;
     session.pendingWinnerIdx = winnerIdx;
