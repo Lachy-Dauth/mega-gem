@@ -424,6 +424,10 @@ if WEB_DIR.exists():
     async def index() -> FileResponse:
         return FileResponse(str(WEB_DIR / "index.html"))
 
+    @app.get("/bots")
+    async def bots_page() -> FileResponse:
+        return FileResponse(str(WEB_DIR / "bots.html"))
+
     @app.get("/room/{code}")
     async def room_page(code: str) -> FileResponse:  # noqa: ARG001
         # The same SPA handles the lobby + game views — the client

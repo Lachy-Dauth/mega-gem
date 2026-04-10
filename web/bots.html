@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MegaGem — Bot Descriptions</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .topbar-home { color: inherit; text-decoration: none; }
+        .topbar-actions .ghost.active { color: var(--accent); }
+
+        .bots-page {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .bots-page h2 {
+            margin-top: 0;
+            margin-bottom: 8px;
+        }
+
+        .bots-page > .muted {
+            margin-bottom: 24px;
+        }
+
+        /* --- Collapsible bot cards ----------------------------------- */
+
+        .bot-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            margin-bottom: 16px;
+        }
+
+        .bot-card summary {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 20px;
+            cursor: pointer;
+            list-style: none;
+            user-select: none;
+        }
+
+        .bot-card summary::-webkit-details-marker { display: none; }
+        .bot-card summary::marker { display: none; }
+
+        .bot-card summary .chevron {
+            flex-shrink: 0;
+            width: 18px;
+            height: 18px;
+            transition: transform 0.2s;
+            color: var(--muted);
+        }
+
+        .bot-card[open] summary .chevron {
+            transform: rotate(90deg);
+        }
+
+        .bot-card summary .bot-header {
+            flex: 1;
+        }
+
+        .bot-card summary h3 {
+            margin: 0;
+            font-size: 18px;
+            color: var(--text);
+            text-transform: none;
+            letter-spacing: 0;
+        }
+
+        .bot-card summary .bot-difficulty {
+            font-size: 13px;
+            color: var(--muted);
+            margin-top: 2px;
+        }
+
+        .bot-card .bot-body {
+            padding: 0 24px 24px;
+        }
+
+        .bot-card p {
+            margin: 0 0 12px;
+            line-height: 1.6;
+        }
+
+        .bot-card p:last-child {
+            margin-bottom: 0;
+        }
+
+        .bot-card .section-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 6px;
+        }
+
+        .bot-card code {
+            background: var(--bg-card-alt);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        }
+
+        /* --- Weight analysis dropdown -------------------------------- */
+
+        .weight-analysis {
+            margin-top: 16px;
+            background: var(--bg-card-alt);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .weight-analysis summary {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            cursor: pointer;
+            list-style: none;
+            user-select: none;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .weight-analysis summary::-webkit-details-marker { display: none; }
+        .weight-analysis summary::marker { display: none; }
+
+        .weight-analysis summary .chevron {
+            flex-shrink: 0;
+            width: 14px;
+            height: 14px;
+            transition: transform 0.2s;
+            color: var(--muted);
+        }
+
+        .weight-analysis[open] summary .chevron {
+            transform: rotate(90deg);
+        }
+
+        .weight-analysis .wa-body {
+            padding: 0 16px 16px;
+        }
+
+        .weight-analysis .wa-body p {
+            font-size: 13px;
+            color: var(--muted);
+            margin: 0 0 12px;
+            line-height: 1.5;
+        }
+
+        .wa-head {
+            margin-bottom: 16px;
+        }
+
+        .wa-head:last-child {
+            margin-bottom: 0;
+        }
+
+        .wa-head-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 8px;
+        }
+
+        .wa-head-formula {
+            font-size: 12px;
+            color: var(--muted);
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+
+        .weight-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        .weight-table th,
+        .weight-table td {
+            padding: 6px 10px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .weight-table th {
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-weight: 600;
+        }
+
+        .weight-table .wt-name {
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+            font-size: 12px;
+            color: var(--text);
+            white-space: nowrap;
+        }
+
+        .weight-table .wt-value {
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+            font-size: 12px;
+            font-weight: 700;
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        .weight-table .wt-value.positive { color: var(--success); }
+        .weight-table .wt-value.negative { color: var(--danger); }
+        .weight-table .wt-value.near-zero { color: var(--muted); }
+
+        .weight-table .wt-meaning {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .weight-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .wa-insight {
+            font-size: 13px;
+            color: var(--text);
+            line-height: 1.6;
+            margin: 8px 0 0;
+            padding: 10px 12px;
+            background: var(--bg);
+            border-radius: 6px;
+            border-left: 3px solid var(--accent);
+        }
+
+        /* --- Heatmap ------------------------------------------------- */
+
+        .heatmap-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 24px;
+            margin-bottom: 16px;
+        }
+
+        .heatmap-section h2 {
+            margin: 0 0 4px;
+        }
+
+        .heatmap-section > .muted {
+            margin-bottom: 16px;
+        }
+
+        .heatmap-wrapper {
+            overflow-x: auto;
+        }
+
+        .heatmap-table {
+            border-collapse: collapse;
+            width: 100%;
+            min-width: 400px;
+            font-size: 14px;
+        }
+
+        .heatmap-table th,
+        .heatmap-table td {
+            padding: 10px 8px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+
+        .heatmap-table th {
+            background: var(--bg-card-alt);
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .heatmap-table th.row-header {
+            text-align: right;
+            padding-right: 12px;
+            color: var(--text);
+            text-transform: none;
+            letter-spacing: 0;
+            font-size: 14px;
+        }
+
+        .heatmap-table th.corner {
+            background: transparent;
+            border-color: transparent;
+        }
+
+        .heatmap-table th.col-label-row {
+            background: transparent;
+            border: none;
+            color: var(--muted);
+            font-size: 12px;
+            text-align: center;
+            padding: 0 0 6px;
+        }
+
+        .heatmap-table td {
+            font-weight: 700;
+            font-size: 15px;
+            min-width: 64px;
+        }
+
+        .heatmap-meta {
+            margin-top: 10px;
+            font-size: 12px;
+            color: var(--muted);
+            font-style: italic;
+        }
+
+        .heatmap-empty {
+            color: var(--muted);
+            font-style: italic;
+            padding: 20px 0;
+            text-align: center;
+        }
+
+        /* --- Misc ---------------------------------------------------- */
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <h1><a href="/" class="topbar-home">MegaGem</a></h1>
+        <div class="topbar-actions">
+            <a href="/bots" class="ghost active">Bots</a>
+            <a href="https://github.com/Lachy-Dauth/mega-gem" class="ghost" target="_blank" rel="noopener">GitHub</a>
+        </div>
+    </header>
+
+    <div class="bots-page">
+        <a href="/" class="back-link">&larr; Back to game</a>
+
+        <!-- ===================== HEATMAP ===================== -->
+        <div class="heatmap-section">
+            <h2>Performance Heatmap</h2>
+            <p class="muted">
+                Outright win rate of one challenger (row) vs three copies of the
+                opponent (column) in 4-player games, averaged across all
+                five value charts. Ties count as non-wins.
+            </p>
+            <div id="heatmap-container">
+                <p class="heatmap-empty">Loading heatmap data...</p>
+            </div>
+        </div>
+
+        <!-- ===================== BOT DESCRIPTIONS ===================== -->
+        <h2>Bot Descriptions</h2>
+        <p class="muted">How each AI opponent makes its decisions. Click to expand.</p>
+
+        <!-- Random AI -->
+        <details class="bot-card">
+            <summary>
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                <div class="bot-header">
+                    <h3>Random AI</h3>
+                    <div class="bot-difficulty">Very easy</div>
+                </div>
+            </summary>
+            <div class="bot-body">
+                <p>
+                    The Random AI is the simplest bot in the game. It has no strategy
+                    at all — every decision is made by rolling the dice.
+                </p>
+
+                <div class="section-label">Bidding</div>
+                <p>
+                    When an auction card comes up, Random AI picks a bid uniformly at
+                    random between <code>0</code> and the maximum legal bid. It
+                    doesn't consider the value of the card, how many coins it has
+                    left, or what other players might do. A treasure card worth 20
+                    points is just as likely to get a bid of 0 as a bid at the cap.
+                </p>
+
+                <div class="section-label">Revealing gems</div>
+                <p>
+                    When forced to reveal a gem from its hand, Random AI picks one
+                    at random with equal probability. It makes no attempt to hold
+                    back valuable colours or reveal ones that help its position.
+                </p>
+
+                <div class="section-label">Why it exists</div>
+                <p>
+                    Random AI serves as the <strong>baseline floor</strong> for the
+                    AI zoo. Any serious bot should comfortably beat it. It's also
+                    useful for quick testing — if a new AI can't even outperform
+                    random play, something is wrong.
+                </p>
+            </div>
+        </details>
+
+        <!-- Heuristic AI -->
+        <details class="bot-card">
+            <summary>
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                <div class="bot-header">
+                    <h3>Heuristic AI</h3>
+                    <div class="bot-difficulty">Medium</div>
+                </div>
+            </summary>
+            <div class="bot-body">
+                <p>
+                    The Heuristic AI is the first bot with an actual strategy. It
+                    estimates the value of each auction card and bids a fraction of
+                    that value, keeping coins in reserve for future rounds.
+                </p>
+
+                <div class="section-label">Treasure bidding</div>
+                <p>
+                    For treasure cards, the bot estimates how much the offered gems
+                    are worth. It does this by predicting what the Value Display will
+                    look like at the end of the game — gems it can see (its own hand,
+                    the current display) are counted exactly, while hidden gems
+                    (opponents' hands, the gem deck) are spread uniformly across
+                    unknown slots. Each gem's value is then looked up on the chart.
+                    Mission bonuses are also factored in: full credit if winning the
+                    gems would complete a mission, and partial credit if it moves the
+                    bot closer to one.
+                </p>
+                <p>
+                    The final bid is <code>75%</code> of that estimated value, capped
+                    so the bot always keeps a reserve of coins for future treasure
+                    auctions. The reserve is based on how many gems are still in the
+                    supply and their expected average value.
+                </p>
+
+                <div class="section-label">Investment bidding</div>
+                <p>
+                    Investments return their face value at the end of the game on top
+                    of the locked bid — they're free money. The bot bids its surplus
+                    coins (everything above its reserve), and will always bid at
+                    least <code>1</code> coin if it can, since any winning bid is
+                    profitable.
+                </p>
+
+                <div class="section-label">Loan bidding</div>
+                <p>
+                    Loans are net-negative (you pay back the full face value), so
+                    the bot only takes them as a last resort — specifically, when it
+                    has fewer than <code>5</code> coins and there are still at least
+                    3 gems left in the supply worth competing for. Otherwise it
+                    bids <code>0</code>.
+                </p>
+
+                <div class="section-label">Revealing gems</div>
+                <p>
+                    When choosing which gem to reveal from its hand, the Heuristic AI
+                    picks the one that benefits it the most. It scores each gem by
+                    how much the Value Display would increase for that colour,
+                    weighted by how many more of that colour it owns compared to its
+                    opponents. A gem it holds lots of and opponents hold few of is
+                    worth boosting; a gem opponents hold more of is worth avoiding.
+                    Ties are broken by revealing colours the bot holds least of.
+                </p>
+
+                <div class="section-label">Why it exists</div>
+                <p>
+                    Heuristic AI is the <strong>fitness opponent</strong> for the
+                    first generation of evolved bots. It provides a meaningful
+                    challenge — far above random play — and a stable baseline to
+                    measure whether genetic tuning is actually producing improvement.
+                </p>
+            </div>
+        </details>
+
+        <!-- Evolved AI (HyperAdaptiveSplitAI) -->
+        <details class="bot-card">
+            <summary>
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                <div class="bot-header">
+                    <h3>Evolved AI</h3>
+                    <div class="bot-difficulty">Hard</div>
+                </div>
+            </summary>
+            <div class="bot-body">
+                <p>
+                    The Evolved AI is the first bot whose strategy was discovered
+                    by a genetic algorithm rather than written by hand. It builds
+                    on the Heuristic AI's foundation but replaces the fixed 75%
+                    discount with three independent linear models — one each for
+                    treasure, investment, and loan auctions — whose 18 total
+                    weights were tuned by evolution.
+                </p>
+
+                <div class="section-label">How the discount works</div>
+                <p>
+                    Each of the three "heads" computes a discount factor between
+                    0 and 1 from five game-state features: how far through the
+                    game you are (progress), the bot's own coin ratio relative to
+                    the remaining expected value, the average and top opponent coin
+                    ratios, and a variance proxy based on how many hidden gems
+                    remain and how sensitive the current value chart is. Each head
+                    has its own bias and five learned weights, so treasures,
+                    investments, and loans can each react differently to the same
+                    game state.
+                </p>
+
+                <div class="section-label">Better value estimation</div>
+                <p>
+                    Instead of the Heuristic AI's simple point estimate of the
+                    final Value Display, the Evolved AI uses a
+                    <strong>hypergeometric distribution</strong>. It models the
+                    unknown gems (in opponents' hands and the deck) as draws from
+                    an urn without replacement, computing the full probability
+                    distribution for each colour's final display count. The
+                    expected value of each gem is then
+                    <code>E[chart_value(X)]</code> rather than
+                    <code>chart_value(E[X])</code> — a significant accuracy
+                    improvement on non-linear charts like chart E, where the value
+                    peaks at 3 gems then crashes to 0.
+                </p>
+
+                <div class="section-label">Bidding</div>
+                <p>
+                    For treasures, the bot multiplies the hypergeometric value
+                    estimate (including mission bonuses) by the treasure head's
+                    discount, then caps the bid at its spendable coins. For
+                    investments, it applies the invest head's discount to its
+                    surplus coins and always bids at least 1 (free money). For
+                    loans, the loan head's discount is applied to the loan amount
+                    — a low discount effectively means "don't take this loan".
+                </p>
+
+                <div class="section-label">Revealing gems</div>
+                <p>
+                    Inherited unchanged from the Heuristic AI — pick the gem
+                    whose colour boost benefits the bot the most relative to
+                    opponents.
+                </p>
+
+                <div class="section-label">Why it exists</div>
+                <p>
+                    The Evolved AI demonstrates that a genetic algorithm can
+                    discover bidding strategies that beat hand-tuned heuristics.
+                    It achieves an <strong>81% win rate</strong> against three
+                    Heuristic AI opponents and serves as the training opponent
+                    for the next generation of bots.
+                </p>
+
+                <details class="weight-analysis">
+                    <summary>
+                        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        Learned weights (18 total)
+                    </summary>
+                    <div class="wa-body">
+                        <p>
+                            Each head computes a discount factor:
+                            <code>discount = clamp(bias + w1*f1 + ... + w5*f5, 0, 1)</code>.
+                            The discount is multiplied by the estimated value to produce the bid.
+                            A higher weight means the feature pushes the discount up (bid more aggressively).
+                        </p>
+
+                        <!-- Treasure head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Treasure head</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+0.27</td><td class="wt-meaning">Low baseline discount (~27%) — starts conservative and lets the features decide</td></tr>
+                                    <tr><td class="wt-name">w_progress</td><td class="wt-value negative">-0.51</td><td class="wt-meaning">Bids <strong>less</strong> aggressively as the game goes on — tightens up late to preserve coins</td></tr>
+                                    <tr><td class="wt-name">w_my_cash</td><td class="wt-value positive">+0.45</td><td class="wt-meaning">Spends more freely when it has a large share of the remaining value in coins</td></tr>
+                                    <tr><td class="wt-name">w_avg_cash</td><td class="wt-value positive">+1.06</td><td class="wt-meaning"><strong>Strongest weight.</strong> Bids much harder when opponents are cash-rich — refuses to be outbid when everyone has money</td></tr>
+                                    <tr><td class="wt-name">w_top_cash</td><td class="wt-value negative">-0.17</td><td class="wt-meaning">Slightly pulls back when one specific opponent is very rich — avoids bidding wars it can't win</td></tr>
+                                    <tr><td class="wt-name">w_variance</td><td class="wt-value near-zero">+0.09</td><td class="wt-meaning">Barely affected by chart uncertainty — trusts its value estimates</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The treasure head's defining trait is the huge <code>w_avg_cash = +1.06</code> weight.
+                                When opponents are flush with coins, this bot goes all-in on treasures rather than
+                                letting them dominate the auctions. The negative progress weight means it front-loads
+                                spending on treasures early and becomes a miser in the endgame.
+                            </div>
+                        </div>
+
+                        <!-- Invest head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Invest head</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value negative">-0.38</td><td class="wt-meaning">Negative baseline — rarely invests unless features push it up</td></tr>
+                                    <tr><td class="wt-name">w_progress</td><td class="wt-value negative">-0.18</td><td class="wt-meaning">Less willing to invest as the game goes on</td></tr>
+                                    <tr><td class="wt-name">w_my_cash</td><td class="wt-value positive">+0.70</td><td class="wt-meaning">Invests heavily when it has lots of coins relative to remaining value</td></tr>
+                                    <tr><td class="wt-name">w_avg_cash</td><td class="wt-value negative">-1.08</td><td class="wt-meaning"><strong>Strongest weight.</strong> Avoids investing when opponents also have lots of cash — prefers to save coins for treasure fights</td></tr>
+                                    <tr><td class="wt-name">w_top_cash</td><td class="wt-value positive">+0.65</td><td class="wt-meaning">But if one specific opponent is way richer, it <em>does</em> invest — concedes the next auction to lock in safe returns</td></tr>
+                                    <tr><td class="wt-name">w_variance</td><td class="wt-value near-zero">+0.08</td><td class="wt-meaning">Negligible effect from chart uncertainty</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The invest head shows sophisticated resource management: it only invests when it
+                                can afford to (high <code>w_my_cash</code>), but avoids locking up coins when opponents
+                                also have money to spend on treasures (<code>w_avg_cash = -1.08</code>). The exception is
+                                when one opponent is so far ahead that competing for treasures seems futile — then it
+                                pivots to safe investment returns.
+                            </div>
+                        </div>
+
+                        <!-- Loan head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Loan head</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value negative">-0.52</td><td class="wt-meaning">Strongly avoids loans by default — net-negative cash flow</td></tr>
+                                    <tr><td class="wt-name">w_progress</td><td class="wt-value positive">+0.92</td><td class="wt-meaning"><strong>Strongest weight.</strong> Increasingly willing to take loans late in the game for last-minute leverage</td></tr>
+                                    <tr><td class="wt-name">w_my_cash</td><td class="wt-value near-zero">+0.12</td><td class="wt-meaning">Small effect — neither desperate nor cautious about current cash</td></tr>
+                                    <tr><td class="wt-name">w_avg_cash</td><td class="wt-value near-zero">-0.09</td><td class="wt-meaning">Barely affected by opponent cash levels</td></tr>
+                                    <tr><td class="wt-name">w_top_cash</td><td class="wt-value negative">-0.44</td><td class="wt-meaning">Avoids loans when the top opponent is rich — doesn't want to go deeper in debt against a strong player</td></tr>
+                                    <tr><td class="wt-name">w_variance</td><td class="wt-value positive">+0.98</td><td class="wt-meaning"><strong>Near-strongest.</strong> Strongly takes loans when the situation is uncertain — gambles on high-variance charts</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The loan head reveals an interesting endgame gambit: the massive <code>w_progress = +0.92</code>
+                                combined with the high <code>w_variance = +0.98</code> means this bot will take loans
+                                late in uncertain games — a "Hail Mary" play where the extra coins might swing a
+                                close outcome. Early in the game, the negative bias and <code>w_top_cash</code> keep it cautious.
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </div>
+        </details>
+
+        <!-- Evo2 AI -->
+        <details class="bot-card">
+            <summary>
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                <div class="bot-header">
+                    <h3>Evo2 AI</h3>
+                    <div class="bot-difficulty">Harder</div>
+                </div>
+            </summary>
+            <div class="bot-body">
+                <p>
+                    Evo2 is a clean-slate redesign that throws out the hand-coded
+                    scaffolding of the Evolved AI and lets the genetic algorithm
+                    discover everything from scratch. Instead of computing a
+                    discount fraction and multiplying it by an estimated value,
+                    each head outputs the <strong>bid in coins directly</strong>
+                    — a simple linear formula whose 19 total weights encode the
+                    full bidding policy.
+                </p>
+
+                <div class="section-label">Direct bid output</div>
+                <p>
+                    Each head computes
+                    <code>bid = bias + w1*f1 + w2*f2 + ...</code> and the
+                    result is clamped to <code>[0, max_legal_bid]</code>.
+                    There's no intermediate "discount times value" step, which
+                    frees the GA from the implicit assumption that bids should
+                    scale proportionally with estimated value.
+                </p>
+
+                <div class="section-label">Smarter features</div>
+                <p>
+                    The progress proxy (fraction of the auction deck consumed) is
+                    replaced by an exact <strong>expected rounds remaining</strong>
+                    calculated via a closed-form multivariate hypergeometric over
+                    the known auction deck composition and remaining gem supply.
+                    Cash features switch from ratios to raw coin counts (my coins,
+                    average opponent coins, top opponent coins) and let the GA
+                    learn the right scaling. The treasure head also gets two new
+                    per-card features: the <strong>expected value</strong> and
+                    <strong>standard deviation</strong> of the prize, both
+                    derived from the hypergeometric gem distribution.
+                </p>
+
+                <div class="section-label">Mission probability delta</div>
+                <p>
+                    On top of the existing hard/soft mission bonuses, the treasure
+                    head factors in a <strong>mission probability delta</strong>
+                    for each active mission: the difference between "probability
+                    I win this mission if I take the gems" and "probability I win
+                    it if the richest opponent takes them", scaled by the mission's
+                    coin reward. This captures the competitive value of denying
+                    missions to opponents, not just pursuing your own.
+                </p>
+
+                <div class="section-label">Revealing gems</div>
+                <p>
+                    Uses the same reveal logic as the Heuristic AI — boost
+                    colours you hold more of than opponents.
+                </p>
+
+                <div class="section-label">Why it exists</div>
+                <p>
+                    Evo2 proves that removing hand-designed constraints and
+                    letting the GA learn freely produces a stronger bot. It was
+                    trained against a mix of all prior bots (Random, Heuristic,
+                    and Evolved) to avoid overfitting to any single opponent, and
+                    achieves a <strong>69% pooled win rate</strong> across that
+                    field.
+                </p>
+
+                <details class="weight-analysis">
+                    <summary>
+                        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        Learned weights (19 total)
+                    </summary>
+                    <div class="wa-body">
+                        <p>
+                            Each head computes the bid directly in coins:
+                            <code>bid = clamp(bias + w1*f1 + ... + wN*fN, 0, cap)</code>.
+                            Unlike the Evolved AI's discount model, there is no intermediate value estimate
+                            being scaled — the weights encode the full bidding policy.
+                        </p>
+
+                        <!-- Treasure head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Treasure head (7 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+0.77</td><td class="wt-meaning">Small positive floor — always willing to bid a bit on treasures</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.16</td><td class="wt-meaning">Bids slightly less with more rounds remaining — saves coins for later opportunities</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value positive">+0.12</td><td class="wt-meaning">Modestly increases bids when it has more coins</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value near-zero">+0.04</td><td class="wt-meaning">Barely reacts to average opponent wealth</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">-0.00</td><td class="wt-meaning">Essentially ignores the richest opponent — a big shift from Evolved AI's sensitivity</td></tr>
+                                    <tr><td class="wt-name">w_ev</td><td class="wt-value positive">+0.33</td><td class="wt-meaning"><strong>Dominant weight.</strong> Bids roughly 33% of the estimated treasure value — the core of its pricing logic</td></tr>
+                                    <tr><td class="wt-name">w_std</td><td class="wt-value near-zero">-0.03</td><td class="wt-meaning">Slightly cautious on high-uncertainty prizes — prefers predictable value</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The treasure head is dominated by <code>w_ev = +0.33</code> — the bot bids about a third of
+                                what it thinks the treasure is worth. The GA arrived at a much simpler strategy than
+                                Evolved AI's complex opponent-sensitivity: just price the card itself and ignore what
+                                opponents have. The small <code>w_my_coins</code> and <code>w_rounds</code> terms
+                                add basic budget awareness.
+                            </div>
+                        </div>
+
+                        <!-- Invest head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Invest head (6 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+1.85</td><td class="wt-meaning"><strong>Very high baseline</strong> — aggressively pursues every investment</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value positive">+0.42</td><td class="wt-meaning">Invests even more with more rounds remaining — lock in returns early</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">+0.01</td><td class="wt-meaning">Own coins barely affect invest bids — always wants them regardless</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value negative">-0.28</td><td class="wt-meaning">Invests less when opponents are richer — saves coins for treasure competition</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value positive">+0.16</td><td class="wt-meaning">But invests more when the leader is far ahead — pivots to safe returns when outmatched</td></tr>
+                                    <tr><td class="wt-name">w_amount</td><td class="wt-value near-zero">-0.05</td><td class="wt-meaning">Barely distinguishes between invest sizes — treats all investments as equally desirable</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The invest head learned that investments are almost always good: the <code>bias = +1.85</code>
+                                combined with <code>w_rounds = +0.42</code> means the bot bids aggressively on investments
+                                early in the game when there are many rounds to benefit from the returns. The opposing
+                                <code>w_avg_opp = -0.28</code> vs <code>w_top_opp = +0.16</code> shows a nuanced strategy:
+                                hold off when the field is rich, but if one player is pulling away, secure the safe income.
+                            </div>
+                        </div>
+
+                        <!-- Loan head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Loan head (6 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value negative">-0.49</td><td class="wt-meaning">Avoids loans by default — net-negative cash flow</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.29</td><td class="wt-meaning">Even less willing with more rounds left — avoids early debt</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value positive">+0.11</td><td class="wt-meaning">More willing to take loans when cash-rich — uses leverage to amplify a lead</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value positive">+0.21</td><td class="wt-meaning">Takes loans under competitive pressure — borrows to keep pace with richer opponents</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">-0.05</td><td class="wt-meaning">Small pullback vs a rich leader</td></tr>
+                                    <tr><td class="wt-name">w_amount</td><td class="wt-value positive">+0.19</td><td class="wt-meaning">Prefers larger loans when it does borrow — go big or go home</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                A clear "reluctant borrower" strategy: negative bias and negative <code>w_rounds</code> mean
+                                loans are almost never taken early. But when opponents are richer (<code>w_avg_opp = +0.21</code>)
+                                and the bot needs to compete, it takes the bigger loan (<code>w_amount = +0.19</code>) as
+                                a calculated gamble to stay in the fight.
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </div>
+        </details>
+
+        <!-- Evo3 AI -->
+        <details class="bot-card">
+            <summary>
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                <div class="bot-header">
+                    <h3>Evo3 AI</h3>
+                    <div class="bot-difficulty">Hardest</div>
+                </div>
+            </summary>
+            <div class="bot-body">
+                <p>
+                    Evo3 is the <strong>current champion</strong>. It extends
+                    Evo2 with one key innovation: it watches what opponents bid
+                    and adjusts its own strategy in real time. Its 25 weights
+                    were tuned by evolution against all prior bots.
+                </p>
+
+                <div class="section-label">Opponent-pricing signal</div>
+                <p>
+                    After every round, the engine tells each player what happened.
+                    Evo3 uses this to record how much the highest opponent bid
+                    exceeded a <em>baseline</em> — the bid Evo3 itself would have
+                    made with no history. Over the course of a game, this builds
+                    up a running log of how aggressively opponents are bidding
+                    compared to Evo3's default pricing.
+                </p>
+
+                <div class="section-label">Weighted history</div>
+                <p>
+                    Each of the three heads reads two new features: the weighted
+                    <strong>mean</strong> and <strong>standard deviation</strong>
+                    of the opponent-delta history. Observations from the same
+                    category (e.g. treasure history when bidding on a treasure)
+                    are weighted 4x more heavily than cross-category observations,
+                    since how opponents price loans says less about how they'll
+                    price treasures.
+                </p>
+
+                <div class="section-label">No feedback loop</div>
+                <p>
+                    A subtle but critical detail: the baseline used to measure
+                    opponent deltas is what Evo3 <em>would have bid</em> using
+                    the default history values (0, 1), not what it actually bid.
+                    If the actual bid were used, the signal would depend on Evo3's
+                    own learned response to that signal — a feedback loop. By
+                    pinning the baseline to the "no history" bid, the measurement
+                    stays stable regardless of how aggressively the weights react.
+                </p>
+
+                <div class="section-label">Revealing gems</div>
+                <p>
+                    Same reveal logic as all prior evolved bots — inherited from
+                    the Heuristic AI.
+                </p>
+
+                <div class="section-label">Why it exists</div>
+                <p>
+                    Evo3 is the strongest bot in the zoo. By reading opponent
+                    behaviour it can adapt mid-game — bidding more aggressively
+                    against passive opponents and pulling back against aggressive
+                    ones. It achieves a <strong>72% pooled win rate</strong>
+                    against all prior bot types (Random, Heuristic, and Evo2)
+                    and is the default opponent for quick play.
+                </p>
+
+                <details class="weight-analysis">
+                    <summary>
+                        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        Learned weights (25 total)
+                    </summary>
+                    <div class="wa-body">
+                        <p>
+                            Same direct-bid formula as Evo2, plus two opponent-awareness features per head.
+                            The <code>w_mean_delta</code> and <code>w_std_delta</code> weights control how much
+                            the bot reacts to opponent bidding patterns observed during the game.
+                        </p>
+
+                        <!-- Treasure head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Treasure head (9 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+0.95</td><td class="wt-meaning">Moderate positive floor — slightly more aggressive baseline than Evo2</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.23</td><td class="wt-meaning">Bids less with more rounds remaining — stronger patience than Evo2</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">+0.09</td><td class="wt-meaning">Modest coin sensitivity — relies more on value estimation than budget</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value positive">+0.20</td><td class="wt-meaning">Bids harder when opponents are richer — competes for treasures under pressure</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">-0.03</td><td class="wt-meaning">Near-zero — top opponent doesn't matter much, uses opponent delta signal instead</td></tr>
+                                    <tr><td class="wt-name">w_ev</td><td class="wt-value positive">+0.29</td><td class="wt-meaning"><strong>Core pricing logic.</strong> Bids ~29% of estimated value — more conservative than Evo2's 33%</td></tr>
+                                    <tr><td class="wt-name">w_std</td><td class="wt-value negative">-0.15</td><td class="wt-meaning">Bids less when value is uncertain — avoids overpaying on risky cards</td></tr>
+                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">-0.03</td><td class="wt-meaning">Slightly bids less when opponents overbid — avoids bidding wars on treasures</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value near-zero">-0.09</td><td class="wt-meaning">Bids less when opponent behaviour is erratic — cautious around unpredictable players</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The treasure head bids more conservatively than Evo2 (<code>w_ev = 0.29</code> vs 0.33) but
+                                compensates with <code>w_avg_opp = +0.20</code> — it ramps up when opponents are flush.
+                                <code>w_std = -0.15</code> actively discounts uncertain cards, avoiding overpaying when
+                                the final display value is hard to predict. The opponent-delta weights both
+                                pull bids down (<code>w_mean_delta = -0.03</code>, <code>w_std_delta = -0.09</code>) —
+                                evolution learned that on treasures, it's better to step back when opponents are
+                                aggressive or unpredictable rather than escalate.
+                            </div>
+                        </div>
+
+                        <!-- Invest head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Invest head (8 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+2.04</td><td class="wt-meaning"><strong>Highest bias of any head.</strong> Extremely eager to invest</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value positive">+0.26</td><td class="wt-meaning">Invests more with more rounds left — maximize time to earn returns</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">-0.02</td><td class="wt-meaning">Near-zero coin sensitivity — invest regardless of current balance</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value negative">-0.37</td><td class="wt-meaning">Pulls back when opponents are richer — saves coins for auction fights</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value positive">+0.33</td><td class="wt-meaning">But invests more when one opponent leads — concedes auctions, secures safe returns</td></tr>
+                                    <tr><td class="wt-name">w_amount</td><td class="wt-value near-zero">+0.09</td><td class="wt-meaning">Mild preference for larger investments</td></tr>
+                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">-0.08</td><td class="wt-meaning">Slightly reduces investment when opponents have been overbidding</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value near-zero">+0.03</td><td class="wt-meaning">Near-zero — opponent volatility barely affects investment decisions</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The invest head is remarkably similar to Evo2's — the GA reinforced the same
+                                "invest early, invest often" strategy. The opponent-delta features are near-zero
+                                for investments, which makes sense: investment bidding doesn't benefit much from
+                                knowing opponent aggression patterns since the payoff is deterministic.
+                            </div>
+                        </div>
+
+                        <!-- Loan head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Loan head (8 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value negative">-0.46</td><td class="wt-meaning">Avoids loans by default — stronger aversion than before</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.29</td><td class="wt-meaning">Even less willing early in the game</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">+0.01</td><td class="wt-meaning">Near-zero — loan decisions no longer depend on current balance</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value positive">+0.17</td><td class="wt-meaning">Borrows when opponents are cash-rich — uses loans to stay competitive</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">-0.04</td><td class="wt-meaning">Slight avoidance vs a rich leader</td></tr>
+                                    <tr><td class="wt-name">w_amount</td><td class="wt-value positive">+0.34</td><td class="wt-meaning"><strong>Strongest weight.</strong> Strongly prefers bigger loans — if borrowing, go big</td></tr>
+                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">-0.09</td><td class="wt-meaning">Avoids loans when opponents overbid — no longer borrows to escalate</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value positive">+0.18</td><td class="wt-meaning">Takes loans when opponent behaviour is volatile — borrows to exploit chaos</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The loan head's opponent-awareness shows a nuanced strategy.
+                                <code>w_mean_delta = -0.09</code> avoids loans when opponents consistently overbid,
+                                while <code>w_std_delta = +0.18</code> takes loans when opponents
+                                are <em>volatile</em>. The strategy: exploit unpredictable opponents by borrowing
+                                to fund opportunistic bids when they under-bid, rather than escalating against
+                                consistent aggressors. Combined with <code>w_avg_opp = +0.17</code>, the loan head
+                                says "borrow when opponents are rich and erratic" — a subtle read of the table.
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </div>
+        </details>
+    </div>
+
+    <script>
+    (async function () {
+        const container = document.getElementById("heatmap-container");
+        try {
+            const resp = await fetch("/static/heatmap_data.json");
+            if (!resp.ok) throw new Error(resp.statusText);
+            const data = await resp.json();
+            renderHeatmap(container, data);
+        } catch (e) {
+            console.error("Heatmap load failed:", e);
+            container.innerHTML = '<p class="heatmap-empty">Could not load heatmap data.</p>';
+        }
+    })();
+
+    function renderHeatmap(container, data) {
+        const { names, matrix, games_per_cell, seed_start, games_per_chart } = data;
+        const n = names.length;
+
+        let html = '<div class="heatmap-wrapper"><table class="heatmap-table">';
+
+        // Column label header row
+        html += "<thead>";
+        html += '<tr><th class="corner"></th>';
+        for (const name of names) {
+            html += `<th>${esc(name)}</th>`;
+        }
+        html += "</tr></thead><tbody>";
+
+        // Data rows
+        for (let i = 0; i < n; i++) {
+            html += `<tr><th class="row-header">${esc(names[i])}</th>`;
+            for (let j = 0; j < n; j++) {
+                const v = matrix[i][j];
+                const pct = Math.round(v * 100);
+                const bg = cellColor(v);
+                const fg = v < 0.25 || v > 0.75 ? "#fff" : "#0b0e1f";
+                html += `<td style="background:${bg};color:${fg}">${pct}%</td>`;
+            }
+            html += "</tr>";
+        }
+
+        html += "</tbody></table></div>";
+        const numCharts = data.charts ? data.charts.length : 5;
+        html += `<div class="heatmap-meta">${games_per_cell} games per cell (${numCharts} charts &times; ${games_per_chart} seeds, starting at seed ${seed_start}). Each cell: 1 challenger (row) vs 3&times; opponent (column).</div>`;
+        container.innerHTML = html;
+    }
+
+    function cellColor(v) {
+        // Red (low) → Yellow (mid) → Green (high), matching the matplotlib RdYlGn palette.
+        const r = v < 0.5 ? 220 : Math.round(220 - (v - 0.5) * 2 * 160);
+        const g = v < 0.5 ? Math.round(60 + v * 2 * 160) : 220;
+        const b = 60;
+        return `rgb(${r},${g},${b})`;
+    }
+
+    function esc(s) {
+        const d = document.createElement("div");
+        d.textContent = s;
+        return d.innerHTML;
+    }
+    </script>
+</body>
+</html>
