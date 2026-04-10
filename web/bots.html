@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MegaGem — Bot Descriptions</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .bots-page {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .bots-page h2 {
+            margin-top: 0;
+            margin-bottom: 8px;
+        }
+
+        .bots-page > .muted {
+            margin-bottom: 24px;
+        }
+
+        .bot-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 24px;
+            margin-bottom: 16px;
+        }
+
+        .bot-card h3 {
+            margin: 0 0 4px;
+            font-size: 18px;
+            color: var(--text);
+            text-transform: none;
+            letter-spacing: 0;
+        }
+
+        .bot-card .bot-difficulty {
+            font-size: 13px;
+            color: var(--muted);
+            margin-bottom: 16px;
+        }
+
+        .bot-card p {
+            margin: 0 0 12px;
+            line-height: 1.6;
+        }
+
+        .bot-card p:last-child {
+            margin-bottom: 0;
+        }
+
+        .bot-card .section-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 6px;
+        }
+
+        .bot-card code {
+            background: var(--bg-card-alt);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        }
+
+        .bot-card .coming-soon {
+            color: var(--muted);
+            font-style: italic;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 14px;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <h1><a href="/" style="color: inherit; text-decoration: none;">MegaGem</a></h1>
+        <div class="topbar-actions">
+            <a href="/bots" class="ghost" style="color: var(--accent);">Bots</a>
+            <a href="https://github.com/Lachy-Dauth/mega-gem" class="ghost" target="_blank" rel="noopener">GitHub</a>
+        </div>
+    </header>
+
+    <div class="bots-page">
+        <a href="/" class="back-link">&larr; Back to game</a>
+        <h2>Bot Descriptions</h2>
+        <p class="muted">How each AI opponent makes its decisions.</p>
+
+        <!-- Random AI -->
+        <div class="bot-card">
+            <h3>Random AI</h3>
+            <div class="bot-difficulty">Very easy</div>
+
+            <p>
+                The Random AI is the simplest bot in the game. It has no strategy
+                at all — every decision is made by rolling the dice.
+            </p>
+
+            <div class="section-label">Bidding</div>
+            <p>
+                When an auction card comes up, Random AI picks a bid uniformly at
+                random between <code>0</code> and the maximum legal bid. It
+                doesn't consider the value of the card, how many coins it has
+                left, or what other players might do. A treasure card worth 20
+                points is just as likely to get a bid of 0 as a bid at the cap.
+            </p>
+
+            <div class="section-label">Revealing gems</div>
+            <p>
+                When forced to reveal a gem from its hand, Random AI picks one
+                at random with equal probability. It makes no attempt to hold
+                back valuable colours or reveal ones that help its position.
+            </p>
+
+            <div class="section-label">Why it exists</div>
+            <p>
+                Random AI serves as the <strong>baseline floor</strong> for the
+                AI zoo. Any serious bot should comfortably beat it. It's also
+                useful for quick testing — if a new AI can't even outperform
+                random play, something is wrong.
+            </p>
+        </div>
+
+        <!-- Placeholder for future bots -->
+        <div class="bot-card">
+            <h3>More bots coming soon</h3>
+            <p class="coming-soon">
+                Descriptions for Heuristic AI, Evolved AI, Evo2 AI, and Evo3 AI
+                will be added here.
+            </p>
+        </div>
+    </div>
+</body>
+</html>
