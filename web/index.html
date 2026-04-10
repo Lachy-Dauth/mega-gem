@@ -148,76 +148,81 @@
 
         <!-- ===================== GAME ===================== -->
         <section id="screen-game" class="screen" hidden>
-            <div class="game-grid">
-                <!-- Public board -->
-                <div class="card board">
-                    <div class="board-header">
-                        <span>Round <b id="g-round">0</b></span>
-                        <span>Chart <b id="g-chart">A</b></span>
-                        <span>Auction left: <b id="g-auction-left">0</b></span>
-                        <span>Gem deck: <b id="g-gem-left">0</b></span>
-                    </div>
-                    <div class="auction-row">
+            <div class="game-layout">
+                <!-- Column 1: Game -->
+                <div class="game-main">
+                    <!-- Public board -->
+                    <div class="card board">
+                        <div class="board-header">
+                            <span>Round <b id="g-round">0</b></span>
+                            <span>Chart <b id="g-chart">A</b></span>
+                            <span>Auction left: <b id="g-auction-left">0</b></span>
+                            <span>Gem deck: <b id="g-gem-left">0</b></span>
+                        </div>
+                        <div class="auction-row">
+                            <div>
+                                <h3>Up for auction</h3>
+                                <div id="g-auction" class="auction-card">—</div>
+                            </div>
+                            <div class="grow">
+                                <h3>Revealed gems</h3>
+                                <div id="g-revealed" class="gem-row"></div>
+                            </div>
+                        </div>
                         <div>
-                            <h3>Up for auction</h3>
-                            <div id="g-auction" class="auction-card">—</div>
+                            <h3>Value display</h3>
+                            <div id="g-display" class="gem-row"></div>
                         </div>
-                        <div class="grow">
-                            <h3>Revealed gems</h3>
-                            <div id="g-revealed" class="gem-row"></div>
+                        <div>
+                            <h3>Active missions</h3>
+                            <ul id="g-missions" class="mission-list"></ul>
                         </div>
                     </div>
-                    <div>
-                        <h3>Value display</h3>
-                        <div id="g-display" class="gem-row"></div>
+
+                    <!-- Players -->
+                    <div class="card">
+                        <h3>Players</h3>
+                        <ul id="g-players" class="player-list"></ul>
                     </div>
-                    <div>
-                        <h3>Active missions</h3>
-                        <ul id="g-missions" class="mission-list"></ul>
+
+                    <!-- Your seat -->
+                    <div class="card you">
+                        <h3>You — <span id="g-you-name"></span></h3>
+                        <div class="you-stats">
+                            <span>Coins: <b id="g-you-coins">0</b></span>
+                            <span>Hand: <span id="g-you-hand-count">0</span></span>
+                        </div>
+                        <div>
+                            <h4>Your hand</h4>
+                            <div id="g-you-hand" class="gem-row"></div>
+                        </div>
+                        <div>
+                            <h4>Your collection</h4>
+                            <div id="g-you-collection" class="gem-row"></div>
+                        </div>
+                        <div id="g-bid-panel" hidden>
+                            <h4>Your bid</h4>
+                            <p class="muted" id="g-bid-hint"></p>
+                            <div class="row">
+                                <input id="g-bid-input" type="number" min="0" value="0">
+                                <button id="g-bid-submit" class="primary">Submit</button>
+                            </div>
+                        </div>
+                        <div id="g-reveal-panel" hidden>
+                            <h4>Choose a gem to reveal</h4>
+                            <p class="muted">Click one of your hand gems above to reveal it into the value display.</p>
+                        </div>
+                        <div id="g-waiting" class="muted"></div>
                     </div>
                 </div>
 
-                <!-- Players -->
-                <div class="card">
-                    <h3>Players</h3>
-                    <ul id="g-players" class="player-list"></ul>
-                </div>
-
-                <!-- Your seat -->
-                <div class="card you">
-                    <h3>You — <span id="g-you-name"></span></h3>
-                    <div class="you-stats">
-                        <span>Coins: <b id="g-you-coins">0</b></span>
-                        <span>Hand: <span id="g-you-hand-count">0</span></span>
-                    </div>
-                    <div>
-                        <h4>Your hand</h4>
-                        <div id="g-you-hand" class="gem-row"></div>
-                    </div>
-                    <div>
-                        <h4>Your collection</h4>
-                        <div id="g-you-collection" class="gem-row"></div>
-                    </div>
-                    <div id="g-bid-panel" hidden>
-                        <h4>Your bid</h4>
-                        <p class="muted" id="g-bid-hint"></p>
-                        <div class="row">
-                            <input id="g-bid-input" type="number" min="0" value="0">
-                            <button id="g-bid-submit" class="primary">Submit</button>
-                        </div>
-                    </div>
-                    <div id="g-reveal-panel" hidden>
-                        <h4>Choose a gem to reveal</h4>
-                        <p class="muted">Click one of your hand gems above to reveal it into the value display.</p>
-                    </div>
-                    <div id="g-waiting" class="muted"></div>
-                </div>
-
-                <!-- Log -->
+                <!-- Column 2: Log -->
                 <div class="card log-card">
                     <h3>Round log</h3>
                     <div id="g-log" class="log"></div>
                 </div>
+
+                <!-- Column 3: Chat is moved here by JS on game screen -->
             </div>
         </section>
 

@@ -57,6 +57,18 @@ function showScreen(id) {
     $("chat-panel").hidden = !inRoom;
     // Only show the connection pill while there's an active WS.
     $("conn-status").hidden = !inRoom;
+
+    // On game screen, move chat into the 3-column game layout;
+    // on other screens, move it back to <main> so it appears below content.
+    const chatPanel = $("chat-panel");
+    const gameLayout = document.querySelector(".game-layout");
+    if (id === "screen-game" && gameLayout) {
+        gameLayout.appendChild(chatPanel);
+    } else if (chatPanel.parentElement !== $("app")) {
+        $("app").appendChild(chatPanel);
+    }
+    // Toggle wider max-width on <main> for the 3-column desktop layout.
+    $("app").classList.toggle("game-active", id === "screen-game");
 }
 
 function toast(message, kind = "info") {
