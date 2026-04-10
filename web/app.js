@@ -133,6 +133,35 @@ function restoreSession() {
 // Menu screen
 // ---------------------------------------------------------------------------
 
+async function onQuickPlay() {
+    const name = $("menu-name-quick").value.trim();
+    if (!name) return toast("Enter your name first", "error");
+    const numPlayers = Number($("menu-num-players").value);
+    const aiKind = $("menu-ai-kind").value;
+    const chart = $("menu-chart-quick").value;
+    const seedRaw = $("menu-seed-quick").value;
+    const seed = seedRaw === "" ? null : Number(seedRaw);
+    try {
+        const data = await api("POST", "/api/rooms/quick_play", {
+            host_name: name,
+            num_players: numPlayers,
+            ai_kind: aiKind,
+            chart,
+            seed,
+        });
+        state.room = data.room;
+        state.roomCode = data.room.code;
+        state.playerId = data.you.player_id;
+        state.slotIndex = data.you.slot_index;
+        state.isHost = data.you.is_host;
+        saveSession();
+        showScreen("screen-game");
+        connectWebSocket();
+    } catch (e) {
+        toast(e.message, "error");
+    }
+}
+
 async function onCreateRoom() {
     const name = $("menu-name").value.trim();
     if (!name) return toast("Enter your name first", "error");
@@ -780,6 +809,7 @@ function leaveRoom() {
 }
 
 function wireUp() {
+    $("menu-quick-play").onclick = onQuickPlay;
     $("menu-create").onclick = onCreateRoom;
     $("menu-join").onclick = onJoinRoom;
     $("lobby-add-ai").onclick = onAddAI;
