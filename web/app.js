@@ -45,6 +45,18 @@ const el = (tag, cls, text) => {
     return e;
 };
 
+// Mission category SVG icons (use currentColor so CSS controls hue)
+const MISSION_ICONS = {
+    pendant: `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2Q10 0 13 2"/><polygon points="10,18 4,8 8,5 12,5 16,8"/><line x1="4" y1="8" x2="16" y2="8"/><line x1="8" y1="5" x2="10" y2="18"/><line x1="12" y1="5" x2="10" y2="18"/></svg>`,
+    crown: `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15L3 7L7 10L10 4L13 10L17 7L17 15Z"/><line x1="3" y1="17" x2="17" y2="17"/></svg>`,
+    shield: `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 18Q4 14 3 8L3 3L10 5L17 3L17 8Q16 14 10 18Z"/><path d="M10 5L10 14" opacity="0.5"/></svg>`,
+};
+
+function missionDescription(name) {
+    const idx = name.indexOf(": ");
+    return idx >= 0 ? name.slice(idx + 2) : name;
+}
+
 function showScreen(id) {
     for (const s of document.querySelectorAll(".screen")) {
         s.hidden = s.id !== id;
@@ -533,7 +545,16 @@ function renderGame() {
     const missions = $("g-missions");
     missions.innerHTML = "";
     for (const m of s.active_missions) {
-        missions.appendChild(el("li", "", `${m.name} (${m.coins})`));
+        const li = el("li", `mission-item mission-${m.category}`);
+        const iconSpan = el("span", "mission-icon");
+        iconSpan.innerHTML = MISSION_ICONS[m.category] || "";
+        li.appendChild(iconSpan);
+        const textSpan = el("span", "mission-text");
+        textSpan.appendChild(el("span", "mission-label", m.category));
+        textSpan.appendChild(el("span", "mission-desc", missionDescription(m.name)));
+        li.appendChild(textSpan);
+        li.appendChild(el("span", "mission-coins", String(m.coins)));
+        missions.appendChild(li);
     }
 
     // Players
@@ -549,7 +570,14 @@ function renderGame() {
         li.appendChild(top);
         const sub = el("div", "player-sub");
         sub.appendChild(el("span", "", `hand: ${p.hand_size}`));
-        sub.appendChild(el("span", "", `missions: ${p.completed_missions.length}`));
+        const missionsSpan = el("span", "player-missions");
+        missionsSpan.appendChild(document.createTextNode(`missions: ${p.completed_missions.length} `));
+        for (const cm of p.completed_missions) {
+            const mIcon = el("span", `mission-icon-sm mission-${cm.category}`);
+            mIcon.innerHTML = MISSION_ICONS[cm.category] || "";
+            missionsSpan.appendChild(mIcon);
+        }
+        sub.appendChild(missionsSpan);
         const collection = el("span", "");
         const pieces = Object.entries(p.collection).map(([c, n]) => `${c[0]}×${n}`);
         collection.textContent = pieces.length ? "gems: " + pieces.join(" ") : "gems: none";
@@ -597,7 +625,7 @@ function renderRoundResult(result) {
     }
     for (const comp of result.completed_missions) {
         const p = state.gameState?.players[comp.player_idx];
-        logEntry(`  ★ ${p ? p.name : "seat " + comp.player_idx} completed: ${comp.mission.name}`);
+        logEntry(`  ★ ${p ? p.name : "seat " + comp.player_idx} completed: ${comp.mission.name}`, `mission-log-${comp.mission.category}`);
     }
 }
 
