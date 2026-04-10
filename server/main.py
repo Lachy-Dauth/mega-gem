@@ -39,7 +39,6 @@ logger = logging.getLogger("megagem.main")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = REPO_ROOT / "web"
-PLAY_DIR = REPO_ROOT / "play"
 
 
 app = FastAPI(title="MegaGem Multiplayer", version="0.1.0")
@@ -85,6 +84,14 @@ class ConfigureRequest(BaseModel):
 
 class StartRequest(BaseModel):
     player_id: str
+
+
+class QuickPlayRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=24)
+    num_players: int = Field(4, ge=MIN_PLAYERS, le=MAX_PLAYERS)
+    ai_kind: str = Field("evo3")
+    chart: str = Field("A", pattern="^[A-E]$")
+    seed: Optional[int] = None
 
 
 class RemoveSlotRequest(BaseModel):
@@ -136,6 +143,37 @@ async def create_room(req: CreateRoomRequest) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    return {
+        "room": room.public_view(),
+        "you": {
+            "player_id": host_slot.player_id,
+            "slot_index": host_slot.index,
+            "is_host": True,
+        },
+    }
+
+
+@app.post("/api/rooms/quick_play")
+async def quick_play(req: QuickPlayRequest) -> dict:
+    """Create a room pre-filled with AI opponents and start immediately."""
+    if req.ai_kind not in AI_KINDS:
+        raise HTTPException(status_code=400, detail=f"Unknown AI kind: {req.ai_kind}")
+    try:
+        room, host_slot = await manager.create_room(
+            host_name=req.name, chart=req.chart, seed=req.seed
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    ai_names = ["Avery", "Blair", "Casey", "Dylan"]
+    for i in range(req.num_players - 1):
+        room.add_ai(req.ai_kind, ai_names[i % len(ai_names)])
+
+    loop = asyncio.get_running_loop()
+    room.session = GameSession(room, loop)
+    room.status = "playing"
+    room.session.start()
 
     return {
         "room": room.public_view(),
@@ -390,12 +428,3 @@ if WEB_DIR.exists():
         return FileResponse(str(WEB_DIR / "index.html"))
 
 
-# The offline single-player frontend lives under ``play/``. Mount it
-# alongside the multiplayer client so the multiplayer menu can link
-# to ``/play/`` without the user having to know about file:// URLs.
-if PLAY_DIR.exists():
-    app.mount(
-        "/play",
-        StaticFiles(directory=str(PLAY_DIR), html=True),
-        name="play",
-    )

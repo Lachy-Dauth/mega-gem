@@ -6,14 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repo layout
 
-The canonical Python engine, AI zoo, tests, GA tuners, and checked-in weights all live under **`research/`**. The offline single-player browser frontend (`play/`, `index.html`) and the multiplayer stack (`server/`, `web/`) live at the repo root. **Every research-side Python command (CLI, tests, GA) must be run from inside `research/`** — those scripts resolve paths like `saved_best_weights/` and `artifacts/` relative to the current working directory. **The multiplayer server runs from the repo root** — it resolves weights via `Path(__file__)` so it does not care about the CWD.
+The canonical Python engine, AI zoo, tests, GA tuners, and checked-in weights all live under **`research/`**. The multiplayer stack (`server/`, `web/`) lives at the repo root. **Every research-side Python command (CLI, tests, GA) must be run from inside `research/`** — those scripts resolve paths like `saved_best_weights/` and `artifacts/` relative to the current working directory. **The multiplayer server runs from the repo root** — it resolves weights via `Path(__file__)` so it does not care about the CWD.
 
 ```
 mega-gem/
-├── index.html          # redirect to play/index.html
-├── play/               # offline single-player vanilla-JS frontend
 ├── server/             # FastAPI + WebSocket multiplayer server
-├── web/                # multiplayer browser client (served by server/)
+├── web/                # browser client (served by server/) — quick play vs bots + multiplayer
 ├── requirements.txt    # fastapi / uvicorn / pydantic (server deps)
 ├── nixpacks.toml       # Railway build config
 ├── Procfile            # Railway start command
@@ -53,8 +51,6 @@ python -m scripts.evolve_evo2 --opponent self_play              # tunes Evo2AI v
 python -m scripts.evolve_evo3                                   # tunes Evo3AI (vs_all = avg vs all 6 prior bots)
 python -m scripts.heatmap_pairwise                              # requires saved_best_weights/*.json
 
-# Offline single-player browser frontend — no build, no server
-open ../play/index.html
 ```
 
 ### Multiplayer server (from the repo root)
@@ -89,20 +85,14 @@ The `saved_best_weights/` folder currently holds:
 
 - Python engine, CLI, and tests: **stdlib only**.
 - `scripts/evolve_hyper_adaptive.py` and `scripts/heatmap_pairwise.py`: `pip install matplotlib` (forced to `Agg` backend).
-- `play/` offline browser frontend: zero dependencies, vanilla JS.
 - `server/` multiplayer server: `fastapi`, `uvicorn[standard]`, `pydantic` (see `requirements.txt`).
-- `web/` multiplayer browser client: zero dependencies, vanilla JS.
+- `web/` browser client: zero dependencies, vanilla JS.
 
 ## Architecture
 
-### Two parallel game implementations
+### Single canonical engine
 
-The single most important thing to know: this repo contains **two independent implementations of MegaGem**.
-
-- `research/megagem/` — canonical Python engine + the full AI zoo. Used by the terminal CLI, the test suite, the GA tuners, and the multiplayer `server/` (which prepends `research/` to `sys.path` at import time).
-- `play/megagem.js` — hand-written JS port of the engine plus `RandomAI`, `HeuristicAI`, `HyperAdaptiveSplitAI`, `Evo2AI`, and `Evo3AI`. It is **not** a binding, **not** Pyodide, **not** generated. If you change a game rule in one place, you must mirror the change in the other or the two versions will silently diverge. `research/RULES.md` is the source of truth they should both match.
-
-The multiplayer client in `web/` is a **thin client** — it doesn't run any game logic. It talks to `server/` over REST + WebSocket and renders whatever state the server sends. So multiplayer games always run the canonical Python engine, never the JS port.
+The repo has one game engine: `research/megagem/` (Python). The terminal CLI, test suite, GA tuners, and `server/` all use it. The browser client in `web/` is a **thin client** — it doesn't run any game logic. It talks to `server/` over REST + WebSocket and renders whatever state the server sends. Both quick-play (vs bots) and multiplayer games run the canonical Python engine on the server.
 
 ### Multiplayer server (`server/`)
 
@@ -173,6 +163,4 @@ Three GA scripts, intentionally separate so newer tuners don't perturb older cha
 - **Always invoke as `python -m megagem`.** `python megagem/__main__.py` breaks relative imports.
 - **Reveal-a-gem is mandatory.** If `choose_gem_to_reveal` returns a gem not in hand, the engine substitutes a random one — that's a safety net for buggy AIs, not a feature to rely on.
 - **`LoanCard` bids exceed your coins.** `max_legal_bid` returns `coins + loan_amount` because the loan is conceptually paid first. Always route AI bids through `clamp_bid` rather than trusting raw output.
-- **Browser AI is a port, not a binding.** `play/megagem.js` contains hand-written JS ports of `RandomAI`, `HeuristicAI`, `HyperAdaptiveSplitAI`, `Evo2AI`, and `Evo3AI` — including the full hypergeometric helpers, exact `_expected_rounds_remaining`, mission-probability delta, and (for Evo3) the per-category opponent-delta ring buffer with the same `_last_default_bid` baseline-caching trick the Python version uses. The difficulty menu in `play/index.html` exposes all five. Rule and weight changes must be mirrored across both implementations or they'll silently diverge.
-- **JS Evo3 needs the `observeRound` hook fired from `play/ui.js`.** Unlike the Python engine's `play_round`, the JS game loop lives in `ui.js` → `resolveAuction`. Right after the `apply*` call it walks every non-human `playerStates[i].ai` and invokes `observeRound(state, i, { auction, bids })`. If you ever rewrite `resolveAuction`, keep that call or Evo3 becomes Evo2 in the browser (the ring buffer stays empty).
 - **`--ai evolved` / `--ai evo2` / `--ai evo3` need a weights file in `saved_best_weights/`.** `evolved` exits with a clear error if nothing is found; `evo2` and `evo3` fall back to class defaults with a stderr warning. Weights in `artifacts/` are ignored by the CLI — you must copy them over by hand.

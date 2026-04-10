@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MegaGem Multiplayer</title>
+    <title>MegaGem</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <header class="topbar">
-        <h1>MegaGem <span class="subtle">multiplayer</span></h1>
+        <h1>MegaGem</h1>
         <div class="topbar-actions">
             <span id="conn-status" class="conn-status" hidden></span>
             <button id="topbar-leaderboard" class="ghost">Leaderboards</button>
@@ -21,14 +21,46 @@
 
         <!-- ===================== MENU ===================== -->
         <section id="screen-menu" class="screen">
-            <div class="card single-player-card">
-                <h2>Single player</h2>
-                <p class="muted">Play offline against AI bots in your browser. No server, no
-                friends required — just you against the bots. Includes the
-                full lineup from RandomAI through Evo3.</p>
-                <a id="menu-singleplayer" class="primary button-link" href="/play/">
-                    Play single player →
-                </a>
+            <div class="card">
+                <h2>Quick play</h2>
+                <p class="muted">Jump straight into a game against AI bots.</p>
+                <label class="field">
+                    <span>Your name</span>
+                    <input id="menu-name-quick" type="text" maxlength="20" placeholder="Your display name">
+                </label>
+                <label class="field">
+                    <span>Players</span>
+                    <select id="menu-num-players">
+                        <option value="3">3 players</option>
+                        <option value="4" selected>4 players</option>
+                        <option value="5">5 players</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span>AI difficulty</span>
+                    <select id="menu-ai-kind">
+                        <option value="random">Random (very easy)</option>
+                        <option value="heuristic">Heuristic (medium)</option>
+                        <option value="evolved">Evolved (hard)</option>
+                        <option value="evo2">Evo2 (harder)</option>
+                        <option value="evo3" selected>Evo3 (hardest)</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span>Value chart</span>
+                    <select id="menu-chart-quick">
+                        <option value="A" selected>A — linear (0,4,8,12,16,20)</option>
+                        <option value="B">B — reverse linear (20..0)</option>
+                        <option value="C">C — slow start (0,2,5,9,14,20)</option>
+                        <option value="D">D — penalised end (20..0)</option>
+                        <option value="E">E — peaks at 3 (0,4,10,18,6,0)</option>
+                    </select>
+                </label>
+                <label class="field">
+                    <span>Seed (optional)</span>
+                    <input id="menu-seed-quick" type="number" placeholder="blank for random">
+                </label>
+                <button id="menu-quick-play" class="primary">Play vs bots</button>
             </div>
 
             <div class="card">

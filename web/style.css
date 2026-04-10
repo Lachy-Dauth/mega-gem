@@ -471,25 +471,6 @@ button:disabled {
     font-size: 17px;
 }
 
-/* --- Single player CTA + button-link ------------------------------ */
-
-.single-player-card {
-    border-color: var(--accent);
-    background: linear-gradient(135deg,
-        rgba(107, 140, 255, 0.12),
-        var(--bg-card) 70%);
-}
-
-.button-link {
-    display: inline-block;
-    text-decoration: none;
-    text-align: center;
-    padding: 12px 18px;
-    border-radius: 6px;
-    margin-top: 4px;
-    font-size: 16px;
-}
-
 /* --- Leaderboards -------------------------------------------------- */
 
 .leaderboard-card {

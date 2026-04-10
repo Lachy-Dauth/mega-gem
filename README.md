@@ -2,9 +2,8 @@
 
 A pure-Python implementation of the **MegaGem** auction-and-collection card
 game, plus a small zoo of bidder AIs, a genetic-algorithm tuner that
-breeds the strongest one, an offline vanilla-JS single-player frontend,
-and a FastAPI + WebSocket multiplayer server that lets humans play
-each other (and the AI zoo) from a browser.
+breeds the strongest one, and a FastAPI + WebSocket server that lets you
+play against the AI zoo or other humans from a browser.
 
 The full game rules — turn structure, bid ties, mission categories, value
 charts — live in [`research/RULES.md`](research/RULES.md). This README
@@ -14,14 +13,13 @@ the benchmark plots.
 
 > **Repo layout note.** The canonical engine, AI zoo, tests, GA
 > tuners, and checked-in weights live under **`research/`**. The
-> offline single-player browser frontend (`play/` + the top-level
-> `index.html` redirect) and the multiplayer **`server/`** + **`web/`**
-> live at the repo root. **Every Python command in this README
-> assumes you are inside `research/` *unless* it explicitly runs the
-> multiplayer server** — the research scripts resolve paths like
-> `saved_best_weights/` and `artifacts/` relative to the current
-> working directory; the server resolves them via an absolute
-> `Path(__file__)` lookup and can run from the repo root.
+> **`server/`** + **`web/`** browser stack lives at the repo root.
+> **Every Python command in this README assumes you are inside
+> `research/` *unless* it explicitly runs the server** — the research
+> scripts resolve paths like `saved_best_weights/` and `artifacts/`
+> relative to the current working directory; the server resolves them
+> via an absolute `Path(__file__)` lookup and can run from the repo
+> root.
 
 ---
 
@@ -30,15 +28,14 @@ the benchmark plots.
 1. [Quick start](#quick-start)
 2. [Repo layout](#repo-layout)
 3. [Playing in the terminal](#playing-in-the-terminal)
-4. [Playing in the browser](#playing-in-the-browser)
-5. [Multiplayer (FastAPI server)](#multiplayer-fastapi-server)
-6. [The game engine](#the-game-engine)
-7. [The AI zoo](#the-ai-zoo)
-8. [Testing](#testing)
-9. [Evolving a better AI (the GA)](#evolving-a-better-ai-the-ga)
-10. [Benchmarking: pairwise heatmap](#benchmarking-pairwise-heatmap)
-11. [Adding your own AI](#adding-your-own-ai)
-12. [Common gotchas](#common-gotchas)
+4. [Playing in the browser (FastAPI server)](#playing-in-the-browser-fastapi-server)
+5. [The game engine](#the-game-engine)
+6. [The AI zoo](#the-ai-zoo)
+7. [Testing](#testing)
+8. [Evolving a better AI (the GA)](#evolving-a-better-ai-the-ga)
+9. [Benchmarking: pairwise heatmap](#benchmarking-pairwise-heatmap)
+10. [Adding your own AI](#adding-your-own-ai)
+11. [Common gotchas](#common-gotchas)
 
 ---
 
@@ -69,8 +66,10 @@ python -m megagem
 # 7. Watch four AIs play each other end-to-end on chart E
 python -m megagem --all-ai --ai adaptive --chart E --seed 42
 
-# 8. Or play in your browser — no server, no build step (from repo root):
-open ../play/index.html    # macOS; on Linux use `xdg-open`, Windows `start`
+# 8. Or play in the browser (from the repo root):
+cd ..
+pip install -r requirements.txt
+uvicorn server.main:app --reload    # → http://127.0.0.1:8000/
 ```
 
 If everything above worked you have a clean install.
@@ -81,21 +80,15 @@ If everything above worked you have a clean install.
 
 ```
 mega-gem/
-├── index.html               # Redirect to play/index.html (for GitHub Pages)
-├── play/                    # Offline single-player frontend — open index.html, no server
-│   ├── index.html           # Menu + game screens
-│   ├── style.css            # Dark theme, color-coded gems
-│   ├── megagem.js           # JS port of the engine + RandomAI, HeuristicAI, HyperAdaptiveSplitAI, Evo2AI, Evo3AI
-│   └── ui.js                # UI controller / state machine
-├── server/                  # FastAPI multiplayer server (imports research/megagem)
+├── server/                  # FastAPI server (imports research/megagem)
 │   ├── main.py                 # App + REST routes + WebSocket endpoint
 │   ├── rooms.py                # Room / Slot / RoomManager
 │   ├── session.py              # GameSession — runs the engine in a thread
 │   ├── remote_player.py        # Player adapter whose decisions come over WS
 │   ├── ai_factory.py           # Mirrors research/megagem/__main__.py's AI_FACTORIES
 │   └── protocol.py             # JSON serialization for engine objects
-├── web/                     # Multiplayer browser client (served by server/)
-│   ├── index.html              # Menu → lobby → game → scores
+├── web/                     # Browser client (served by server/)
+│   ├── index.html              # Menu → lobby / quick play → game → scores
 │   ├── style.css               # Minimal dark theme
 │   └── app.js                  # REST + WebSocket client, DOM rendering
 ├── requirements.txt         # Server deps (fastapi, uvicorn, pydantic)
@@ -146,9 +139,9 @@ mega-gem/
 
 The Python CLI, engine, and tests have **zero** third-party dependencies
 — stdlib only. matplotlib is needed only for the GA + heatmap scripts in
-`research/scripts/`. The offline browser frontend in `play/` has no
-dependencies at all. The multiplayer server in `server/` depends on
-FastAPI + uvicorn + pydantic (see `requirements.txt`).
+`research/scripts/`. The server in `server/` depends on FastAPI + uvicorn
++ pydantic (see `requirements.txt`). The browser client in `web/` has no
+dependencies (vanilla JS).
 
 ---
 
@@ -208,44 +201,13 @@ deductions, and grand totals.
 
 ---
 
-## Playing in the browser
+## Playing in the browser (FastAPI server)
 
-The `play/` directory is a fully self-contained vanilla-JS frontend —
-no build step, no bundler, no server, no Pyodide. The Python engine is
-ported faithfully to JavaScript inside `play/megagem.js` (same 30-card
-gem deck, 25-card auction deck, 30 missions, identical bid resolution
-including the "closest player to the left of the previous winner"
-tie-break).
-
-### Run it
-
-```bash
-# Just open the file in any modern browser (paths are from the repo root):
-open play/index.html               # macOS
-xdg-open play/index.html           # Linux
-start play/index.html              # Windows
-# Or double-click it in your file manager.
-```
-
-The offline browser frontend lives at the repo root, *not* under
-`research/`, so these commands are from `mega-gem/`, not
-`mega-gem/research/`. You can also serve it with any static server
-(e.g. `python -m http.server` from inside `play/`) if you'd rather hit
-it over HTTP.
-
-> `play/` is fully offline — every AI runs client-side in JavaScript.
-> For **multiplayer against other humans + AI**, use the server in the
-> next section instead.
-
----
-
-## Multiplayer (FastAPI server)
-
-The `server/` directory is a FastAPI + WebSocket app that hosts
-multiplayer games. It reuses the canonical Python engine and AI zoo
+The `server/` directory is a FastAPI + WebSocket app that hosts all
+browser-based play. It reuses the canonical Python engine and AI zoo
 directly (`server/__init__.py` prepends `research/` to `sys.path`), so
 any AI you add under `research/megagem/players/` is immediately
-available as an opponent in multiplayer games too.
+available as an opponent.
 
 ### Run it locally
 
@@ -256,12 +218,16 @@ uvicorn server.main:app --reload
 # → open http://127.0.0.1:8000/
 ```
 
-You'll see a menu with **Create room** and **Join existing**. Creating
-a room drops you into a lobby screen with a 5-character share code;
-open a second browser tab (or send the code to a friend) and hit
-**Join**. The host can add AI seats from the lobby, pick the value
-chart, and start the game once there are at least 3 players (humans
-+ AI combined).
+The menu offers three ways to play:
+
+- **Quick play** — pick your name, player count, AI difficulty, chart,
+  and optional seed. Hits `POST /api/rooms/quick_play` which creates a
+  room pre-filled with bots and starts the game immediately. No lobby
+  step.
+- **Create room** — creates a multiplayer lobby with a 5-character share
+  code. The host can add AI seats, invite friends, configure the chart /
+  seed, and start when ready.
+- **Join existing** — enter a friend's room code to claim a seat.
 
 ### Architecture
 
@@ -329,6 +295,7 @@ Every WS message is JSON with a `"type"` field:
 | `GET`  | `/api/health` | Liveness probe — also used by Railway. |
 | `GET`  | `/api/config` | Min/max players, valid charts, AI kinds. |
 | `POST` | `/api/rooms` | Create a room; returns `{room, you}`. |
+| `POST` | `/api/rooms/quick_play` | Create a room pre-filled with AI bots and start immediately. |
 | `GET`  | `/api/rooms/{code}` | Fetch current lobby state. |
 | `POST` | `/api/rooms/{code}/join` | Claim a human seat. |
 | `POST` | `/api/rooms/{code}/add_ai` | (host) Add an AI seat with a given kind. |
@@ -336,10 +303,6 @@ Every WS message is JSON with a `"type"` field:
 | `POST` | `/api/rooms/{code}/remove_slot` | (host) Kick a seat. |
 | `POST` | `/api/rooms/{code}/start` | (host) Spin up the `GameSession` thread. |
 | `GET`  | `/api/leaderboard` | Bot win-rate leaderboards (3p / 4p / 5p) over recorded games. |
-
-The server also serves the offline single-player frontend at
-**`/play/`** and exposes a **Leaderboards** button in the topbar that
-hits `/api/leaderboard`.
 
 ### Game-record database
 
@@ -397,57 +360,8 @@ mount (see [Game-record database](#game-record-database) above).
 - **No spectators.** A WS connection is tied to a seat. Adding
   `spectator` connections that just receive state snapshots is a small
   follow-up.
-- **Frontend is intentionally minimal.** The multiplayer UI in `web/`
-  is functional but much plainer than `play/index.html`. Once the
-  protocol is stable, porting `play/ui.js`'s richer board rendering on
-  top of the WS client is the obvious next step.
-
-### Menu options
-
-| Option | Choices | Notes |
-|--------|---------|-------|
-| Your name | free text | Shown on opponents' boards and the score table. |
-| Players | 3 / 4 / 5 | You + 2/3/4 AI opponents. Starting coins/hand size scale per the rules. |
-| AI difficulty | Random / Heuristic / Evolved / Evo2 / Evo3 | All five Python bots (`RandomAI`, `HeuristicAI`, `HyperAdaptiveSplitAI`, `Evo2AI`, `Evo3AI`) are ported into `play/megagem.js` and exposed in the menu. GA-evolved weight sets are hard-coded into the JS file so no server / fetch is needed. Evo3 is selected by default. |
-| Value chart | A–E | Same five charts the Python engine uses. Chart E is the trickiest. |
-| Random seed | optional | Leave blank for a random game; set a number to make the deck order reproducible. |
-
-### What the game screen shows
-
-* **Top panel** — round counter, current chart, deck sizes, the auction
-  card on offer, the gems available if it's a treasure, the public
-  Value Display (with current per-gem prices), and the active missions.
-* **Middle panel** — opponent cards: name, coin count, hand size,
-  collection size, completed-mission count, and a tally of every gem
-  they own (collections are public information). The previous round's
-  winner is highlighted in gold.
-* **Bottom panel** — your name and coins, your hand (clickable during
-  the reveal phase), your collection, your completed missions, and the
-  bid input.
-* **Right panel** — a running log of every round (auction, all bids,
-  winner, what they took, missions completed) and the **Continue**
-  button between rounds.
-
-### How a turn flows in the UI
-
-1. A new auction card is drawn — the bid input unlocks.
-2. Type a bid (or hit **Pass**) and press **Submit**. AI bids are
-   computed instantly and the winner is shown in the log.
-3. If you won and have at least one card in hand, your hand becomes
-   clickable — click the gem you'd like to reveal into the Value
-   Display. (AI winners pick automatically.)
-4. Missions auto-complete; the gem deck refills the revealed display.
-5. Click **Continue** to draw the next auction card.
-6. When the auction or gem deck runs out, the score screen appears
-   with everyone's per-category breakdown and a **Play again** button.
-
-> The browser frontend ships hand-written JS ports of `RandomAI`,
-> `HeuristicAI`, `HyperAdaptiveSplitAI`, `Evo2AI`, and `Evo3AI`.
-> Evo3's per-category opponent-delta ring buffer — with the same
-> `_last_default_bid` baseline-caching trick — is re-implemented in JS
-> and fed by an `observeRound` hook `play/ui.js` fires right after
-> each auction resolves, so browser Evo3 learns live during a game
-> just like its Python counterpart.
+- **Frontend is intentionally minimal.** The UI in `web/` is functional
+  but plain. Improvements to the board rendering are a welcome follow-up.
 
 ---
 
