@@ -6,6 +6,9 @@
     <title>MegaGem — Bot Descriptions</title>
     <link rel="stylesheet" href="/static/style.css">
     <style>
+        .topbar-home { color: inherit; text-decoration: none; }
+        .topbar-actions .ghost.active { color: var(--accent); }
+
         .bots-page {
             max-width: 720px;
             margin: 0 auto;
@@ -41,6 +44,7 @@
         }
 
         .bot-card summary::-webkit-details-marker { display: none; }
+        .bot-card summary::marker { display: none; }
 
         .bot-card summary .chevron {
             flex-shrink: 0;
@@ -125,6 +129,7 @@
         }
 
         .weight-analysis summary::-webkit-details-marker { display: none; }
+        .weight-analysis summary::marker { display: none; }
 
         .weight-analysis summary .chevron {
             flex-shrink: 0;
@@ -341,9 +346,9 @@
 </head>
 <body>
     <header class="topbar">
-        <h1><a href="/" style="color: inherit; text-decoration: none;">MegaGem</a></h1>
+        <h1><a href="/" class="topbar-home">MegaGem</a></h1>
         <div class="topbar-actions">
-            <a href="/bots" class="ghost" style="color: var(--accent);">Bots</a>
+            <a href="/bots" class="ghost active">Bots</a>
             <a href="https://github.com/Lachy-Dauth/mega-gem" class="ghost" target="_blank" rel="noopener">GitHub</a>
         </div>
     </header>
@@ -552,7 +557,7 @@
                 <p>
                     The Evolved AI demonstrates that a genetic algorithm can
                     discover bidding strategies that beat hand-tuned heuristics.
-                    It achieves an <strong>89% win rate</strong> against three
+                    It achieves an <strong>81% win rate</strong> against three
                     Heuristic AI opponents and serves as the training opponent
                     for the next generation of bots.
                 </p>
@@ -859,8 +864,8 @@
                     behaviour it can adapt mid-game — bidding more aggressively
                     against passive opponents and pulling back against aggressive
                     ones. It achieves a <strong>72% pooled win rate</strong>
-                    against the full field of all six prior bots and is the
-                    default opponent for quick play.
+                    against all prior bot types (Random, Heuristic, and Evo2)
+                    and is the default opponent for quick play.
                 </p>
 
                 <details class="weight-analysis">
