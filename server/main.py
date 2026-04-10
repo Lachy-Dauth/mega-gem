@@ -74,7 +74,7 @@ class JoinRoomRequest(BaseModel):
 class AddAIRequest(BaseModel):
     player_id: str
     ai_kind: str
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, max_length=24)
 
 
 class ConfigureRequest(BaseModel):
@@ -186,7 +186,7 @@ async def add_ai(code: str, req: AddAIRequest) -> dict:
     if req.ai_kind not in AI_KINDS:
         raise HTTPException(status_code=400, detail=f"Unknown AI kind: {req.ai_kind}")
     ai_display_names = ["Avery", "Blair", "Casey", "Dylan", "Elliot"]
-    name = req.name or ai_display_names[len(room.slots) % len(ai_display_names)]
+    name = (req.name or "").strip() or ai_display_names[len(room.slots) % len(ai_display_names)]
     try:
         slot = room.add_ai(req.ai_kind, name)
     except RuntimeError as exc:
@@ -311,6 +311,11 @@ async def game_ws(
         if pending is not None:
             await websocket.send_json(pending)
 
+    # If connecting mid-game, reactivate the remote player so it
+    # accepts bids again after a prior disconnect forfeit.
+    if room.status == "playing" and room.session is not None:
+        room.session.notify_reconnect(slot.index)
+
     try:
         while True:
             message = await websocket.receive_json()
@@ -323,8 +328,12 @@ async def game_ws(
         if slot.websocket is websocket:
             slot.connected = False
             slot.websocket = None
+            # Auto-forfeit so the game thread doesn't block forever
+            # waiting on a disconnected player.
+            if room.status == "playing" and room.session is not None:
+                room.session.notify_disconnect(slot.index)
             # Fire-and-forget lobby update so other players see the drop.
-            if room.status == "lobby":
+            elif room.status == "lobby":
                 await _broadcast_lobby(room)
 
 

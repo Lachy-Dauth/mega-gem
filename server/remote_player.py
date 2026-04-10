@@ -133,3 +133,13 @@ class RemotePlayer(Player):
         self._stopped = True
         self.bid_queue.put(_SHUTDOWN)
         self.reveal_queue.put(_SHUTDOWN)
+
+    def forfeit(self) -> None:
+        """Auto-play defaults so the game can proceed while disconnected."""
+        self._stopped = True
+        self.bid_queue.put(0)
+        self.reveal_queue.put(None)
+
+    def reactivate(self) -> None:
+        """Re-enable blocking waits after a reconnect."""
+        self._stopped = False

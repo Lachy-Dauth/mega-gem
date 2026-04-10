@@ -109,6 +109,18 @@ class GameSession:
     # Called from the async WebSocket handlers
     # ------------------------------------------------------------------
 
+    def notify_disconnect(self, player_idx: int) -> None:
+        """Called when a human's WebSocket drops during a game."""
+        remote = self._remote_players.get(player_idx)
+        if remote is not None:
+            remote.forfeit()
+
+    def notify_reconnect(self, player_idx: int) -> None:
+        """Called when a human reconnects during a game."""
+        remote = self._remote_players.get(player_idx)
+        if remote is not None:
+            remote.reactivate()
+
     def submit_bid(self, player_idx: int, amount: int) -> None:
         remote = self._remote_players.get(player_idx)
         if remote is None:
