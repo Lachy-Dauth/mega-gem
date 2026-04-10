@@ -20,6 +20,7 @@
     --purple: #b96bff;
     --yellow: #ffd93d;
     --page-padding: 20px;
+    --topbar-height: 50px;
 }
 
 * {
@@ -674,12 +675,12 @@ button:disabled {
         top: var(--page-padding);
         display: flex;
         flex-direction: column;
-        max-height: calc(100vh - var(--page-padding) * 2 - 50px);
-        overflow: hidden;
+        max-height: calc(100vh - var(--page-padding) * 2 - var(--topbar-height));
     }
 
     .game-layout .log-card .log {
         flex: 1;
+        min-height: 0;
         max-height: none;
         overflow-y: auto;
     }
@@ -691,12 +692,12 @@ button:disabled {
         margin: 0;
         display: flex;
         flex-direction: column;
-        max-height: calc(100vh - var(--page-padding) * 2 - 50px);
-        overflow: hidden;
+        max-height: calc(100vh - var(--page-padding) * 2 - var(--topbar-height));
     }
 
     .game-layout .chat-card .chat-messages {
         flex: 1;
+        min-height: 0;
         max-height: none;
     }
 }
