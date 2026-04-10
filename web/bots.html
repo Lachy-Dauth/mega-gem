@@ -102,6 +102,140 @@
             font-family: ui-monospace, "SF Mono", Menlo, monospace;
         }
 
+        /* --- Weight analysis dropdown -------------------------------- */
+
+        .weight-analysis {
+            margin-top: 16px;
+            background: var(--bg-card-alt);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .weight-analysis summary {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 16px;
+            cursor: pointer;
+            list-style: none;
+            user-select: none;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent);
+        }
+
+        .weight-analysis summary::-webkit-details-marker { display: none; }
+
+        .weight-analysis summary .chevron {
+            flex-shrink: 0;
+            width: 14px;
+            height: 14px;
+            transition: transform 0.2s;
+            color: var(--muted);
+        }
+
+        .weight-analysis[open] summary .chevron {
+            transform: rotate(90deg);
+        }
+
+        .weight-analysis .wa-body {
+            padding: 0 16px 16px;
+        }
+
+        .weight-analysis .wa-body p {
+            font-size: 13px;
+            color: var(--muted);
+            margin: 0 0 12px;
+            line-height: 1.5;
+        }
+
+        .wa-head {
+            margin-bottom: 16px;
+        }
+
+        .wa-head:last-child {
+            margin-bottom: 0;
+        }
+
+        .wa-head-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            margin-bottom: 8px;
+        }
+
+        .wa-head-formula {
+            font-size: 12px;
+            color: var(--muted);
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+            margin-bottom: 8px;
+            word-break: break-all;
+        }
+
+        .weight-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        .weight-table th,
+        .weight-table td {
+            padding: 6px 10px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .weight-table th {
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-weight: 600;
+        }
+
+        .weight-table .wt-name {
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+            font-size: 12px;
+            color: var(--text);
+            white-space: nowrap;
+        }
+
+        .weight-table .wt-value {
+            font-family: ui-monospace, "SF Mono", Menlo, monospace;
+            font-size: 12px;
+            font-weight: 700;
+            text-align: right;
+            white-space: nowrap;
+        }
+
+        .weight-table .wt-value.positive { color: var(--success); }
+        .weight-table .wt-value.negative { color: var(--danger); }
+        .weight-table .wt-value.near-zero { color: var(--muted); }
+
+        .weight-table .wt-meaning {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .weight-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .wa-insight {
+            font-size: 13px;
+            color: var(--text);
+            line-height: 1.6;
+            margin: 8px 0 0;
+            padding: 10px 12px;
+            background: var(--bg);
+            border-radius: 6px;
+            border-left: 3px solid var(--accent);
+        }
+
         /* --- Heatmap ------------------------------------------------- */
 
         .heatmap-section {
@@ -422,6 +556,88 @@
                     Heuristic AI opponents and serves as the training opponent
                     for the next generation of bots.
                 </p>
+
+                <details class="weight-analysis">
+                    <summary>
+                        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        Learned weights (18 total)
+                    </summary>
+                    <div class="wa-body">
+                        <p>
+                            Each head computes a discount factor:
+                            <code>discount = clamp(bias + w1*f1 + ... + w5*f5, 0, 1)</code>.
+                            The discount is multiplied by the estimated value to produce the bid.
+                            A higher weight means the feature pushes the discount up (bid more aggressively).
+                        </p>
+
+                        <!-- Treasure head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Treasure head</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+0.27</td><td class="wt-meaning">Low baseline discount (~27%) — starts conservative and lets the features decide</td></tr>
+                                    <tr><td class="wt-name">w_progress</td><td class="wt-value negative">-0.51</td><td class="wt-meaning">Bids <strong>less</strong> aggressively as the game goes on — tightens up late to preserve coins</td></tr>
+                                    <tr><td class="wt-name">w_my_cash</td><td class="wt-value positive">+0.45</td><td class="wt-meaning">Spends more freely when it has a large share of the remaining value in coins</td></tr>
+                                    <tr><td class="wt-name">w_avg_cash</td><td class="wt-value positive">+1.06</td><td class="wt-meaning"><strong>Strongest weight.</strong> Bids much harder when opponents are cash-rich — refuses to be outbid when everyone has money</td></tr>
+                                    <tr><td class="wt-name">w_top_cash</td><td class="wt-value negative">-0.17</td><td class="wt-meaning">Slightly pulls back when one specific opponent is very rich — avoids bidding wars it can't win</td></tr>
+                                    <tr><td class="wt-name">w_variance</td><td class="wt-value near-zero">+0.09</td><td class="wt-meaning">Barely affected by chart uncertainty — trusts its value estimates</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The treasure head's defining trait is the huge <code>w_avg_cash = +1.06</code> weight.
+                                When opponents are flush with coins, this bot goes all-in on treasures rather than
+                                letting them dominate the auctions. The negative progress weight means it front-loads
+                                spending on treasures early and becomes a miser in the endgame.
+                            </div>
+                        </div>
+
+                        <!-- Invest head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Invest head</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value negative">-0.38</td><td class="wt-meaning">Negative baseline — rarely invests unless features push it up</td></tr>
+                                    <tr><td class="wt-name">w_progress</td><td class="wt-value negative">-0.18</td><td class="wt-meaning">Less willing to invest as the game goes on</td></tr>
+                                    <tr><td class="wt-name">w_my_cash</td><td class="wt-value positive">+0.70</td><td class="wt-meaning">Invests heavily when it has lots of coins relative to remaining value</td></tr>
+                                    <tr><td class="wt-name">w_avg_cash</td><td class="wt-value negative">-1.08</td><td class="wt-meaning"><strong>Strongest weight.</strong> Avoids investing when opponents also have lots of cash — prefers to save coins for treasure fights</td></tr>
+                                    <tr><td class="wt-name">w_top_cash</td><td class="wt-value positive">+0.65</td><td class="wt-meaning">But if one specific opponent is way richer, it <em>does</em> invest — concedes the next auction to lock in safe returns</td></tr>
+                                    <tr><td class="wt-name">w_variance</td><td class="wt-value near-zero">+0.08</td><td class="wt-meaning">Negligible effect from chart uncertainty</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The invest head shows sophisticated resource management: it only invests when it
+                                can afford to (high <code>w_my_cash</code>), but avoids locking up coins when opponents
+                                also have money to spend on treasures (<code>w_avg_cash = -1.08</code>). The exception is
+                                when one opponent is so far ahead that competing for treasures seems futile — then it
+                                pivots to safe investment returns.
+                            </div>
+                        </div>
+
+                        <!-- Loan head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Loan head</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value negative">-0.52</td><td class="wt-meaning">Strongly avoids loans by default — net-negative cash flow</td></tr>
+                                    <tr><td class="wt-name">w_progress</td><td class="wt-value positive">+0.92</td><td class="wt-meaning"><strong>Strongest weight.</strong> Increasingly willing to take loans late in the game for last-minute leverage</td></tr>
+                                    <tr><td class="wt-name">w_my_cash</td><td class="wt-value near-zero">+0.12</td><td class="wt-meaning">Small effect — neither desperate nor cautious about current cash</td></tr>
+                                    <tr><td class="wt-name">w_avg_cash</td><td class="wt-value near-zero">-0.09</td><td class="wt-meaning">Barely affected by opponent cash levels</td></tr>
+                                    <tr><td class="wt-name">w_top_cash</td><td class="wt-value negative">-0.44</td><td class="wt-meaning">Avoids loans when the top opponent is rich — doesn't want to go deeper in debt against a strong player</td></tr>
+                                    <tr><td class="wt-name">w_variance</td><td class="wt-value positive">+0.98</td><td class="wt-meaning"><strong>Near-strongest.</strong> Strongly takes loans when the situation is uncertain — gambles on high-variance charts</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The loan head reveals an interesting endgame gambit: the massive <code>w_progress = +0.92</code>
+                                combined with the high <code>w_variance = +0.98</code> means this bot will take loans
+                                late in uncertain games — a "Hail Mary" play where the extra coins might swing a
+                                close outcome. Early in the game, the negative bias and <code>w_top_cash</code> keep it cautious.
+                            </div>
+                        </div>
+                    </div>
+                </details>
             </div>
         </details>
 
@@ -495,6 +711,90 @@
                     achieves a <strong>69% pooled win rate</strong> across that
                     field.
                 </p>
+
+                <details class="weight-analysis">
+                    <summary>
+                        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        Learned weights (19 total)
+                    </summary>
+                    <div class="wa-body">
+                        <p>
+                            Each head computes the bid directly in coins:
+                            <code>bid = clamp(bias + w1*f1 + ... + wN*fN, 0, cap)</code>.
+                            Unlike the Evolved AI's discount model, there is no intermediate value estimate
+                            being scaled — the weights encode the full bidding policy.
+                        </p>
+
+                        <!-- Treasure head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Treasure head (7 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+0.77</td><td class="wt-meaning">Small positive floor — always willing to bid a bit on treasures</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.16</td><td class="wt-meaning">Bids slightly less with more rounds remaining — saves coins for later opportunities</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value positive">+0.12</td><td class="wt-meaning">Modestly increases bids when it has more coins</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value near-zero">+0.04</td><td class="wt-meaning">Barely reacts to average opponent wealth</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">-0.00</td><td class="wt-meaning">Essentially ignores the richest opponent — a big shift from Evolved AI's sensitivity</td></tr>
+                                    <tr><td class="wt-name">w_ev</td><td class="wt-value positive">+0.33</td><td class="wt-meaning"><strong>Dominant weight.</strong> Bids roughly 33% of the estimated treasure value — the core of its pricing logic</td></tr>
+                                    <tr><td class="wt-name">w_std</td><td class="wt-value near-zero">-0.03</td><td class="wt-meaning">Slightly cautious on high-uncertainty prizes — prefers predictable value</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The treasure head is dominated by <code>w_ev = +0.33</code> — the bot bids about a third of
+                                what it thinks the treasure is worth. The GA arrived at a much simpler strategy than
+                                Evolved AI's complex opponent-sensitivity: just price the card itself and ignore what
+                                opponents have. The small <code>w_my_coins</code> and <code>w_rounds</code> terms
+                                add basic budget awareness.
+                            </div>
+                        </div>
+
+                        <!-- Invest head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Invest head (6 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+1.85</td><td class="wt-meaning"><strong>Very high baseline</strong> — aggressively pursues every investment</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value positive">+0.42</td><td class="wt-meaning">Invests even more with more rounds remaining — lock in returns early</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">+0.01</td><td class="wt-meaning">Own coins barely affect invest bids — always wants them regardless</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value negative">-0.28</td><td class="wt-meaning">Invests less when opponents are richer — saves coins for treasure competition</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value positive">+0.16</td><td class="wt-meaning">But invests more when the leader is far ahead — pivots to safe returns when outmatched</td></tr>
+                                    <tr><td class="wt-name">w_amount</td><td class="wt-value near-zero">-0.05</td><td class="wt-meaning">Barely distinguishes between invest sizes — treats all investments as equally desirable</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The invest head learned that investments are almost always good: the <code>bias = +1.85</code>
+                                combined with <code>w_rounds = +0.42</code> means the bot bids aggressively on investments
+                                early in the game when there are many rounds to benefit from the returns. The opposing
+                                <code>w_avg_opp = -0.28</code> vs <code>w_top_opp = +0.16</code> shows a nuanced strategy:
+                                hold off when the field is rich, but if one player is pulling away, secure the safe income.
+                            </div>
+                        </div>
+
+                        <!-- Loan head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Loan head (6 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value negative">-0.49</td><td class="wt-meaning">Avoids loans by default — net-negative cash flow</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.29</td><td class="wt-meaning">Even less willing with more rounds left — avoids early debt</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value positive">+0.11</td><td class="wt-meaning">More willing to take loans when cash-rich — uses leverage to amplify a lead</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value positive">+0.21</td><td class="wt-meaning">Takes loans under competitive pressure — borrows to keep pace with richer opponents</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">-0.05</td><td class="wt-meaning">Small pullback vs a rich leader</td></tr>
+                                    <tr><td class="wt-name">w_amount</td><td class="wt-value positive">+0.19</td><td class="wt-meaning">Prefers larger loans when it does borrow — go big or go home</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                A clear "reluctant borrower" strategy: negative bias and negative <code>w_rounds</code> mean
+                                loans are almost never taken early. But when opponents are richer (<code>w_avg_opp = +0.21</code>)
+                                and the bot needs to compete, it takes the bigger loan (<code>w_amount = +0.19</code>) as
+                                a calculated gamble to stay in the fight.
+                            </div>
+                        </div>
+                    </div>
+                </details>
             </div>
         </details>
 
@@ -562,6 +862,98 @@
                     against the full field of all six prior bots and is the
                     default opponent for quick play.
                 </p>
+
+                <details class="weight-analysis">
+                    <summary>
+                        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        Learned weights (25 total)
+                    </summary>
+                    <div class="wa-body">
+                        <p>
+                            Same direct-bid formula as Evo2, plus two opponent-awareness features per head.
+                            The <code>w_mean_delta</code> and <code>w_std_delta</code> weights control how much
+                            the bot reacts to opponent bidding patterns observed during the game.
+                        </p>
+
+                        <!-- Treasure head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Treasure head (9 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+0.97</td><td class="wt-meaning">Moderate positive floor — slightly more aggressive baseline than Evo2</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.23</td><td class="wt-meaning">Bids less with more rounds remaining — stronger patience than Evo2</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">+0.06</td><td class="wt-meaning">Modest coin sensitivity — relies more on value estimation than budget</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value positive">+0.13</td><td class="wt-meaning">Bids harder when opponents are richer — competes for treasures under pressure</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">+0.03</td><td class="wt-meaning">Near-zero — top opponent doesn't matter much, uses opponent delta signal instead</td></tr>
+                                    <tr><td class="wt-name">w_ev</td><td class="wt-value positive">+0.23</td><td class="wt-meaning"><strong>Core pricing logic.</strong> Bids ~23% of estimated value — more conservative than Evo2's 33%</td></tr>
+                                    <tr><td class="wt-name">w_std</td><td class="wt-value near-zero">+0.01</td><td class="wt-meaning">Uncertainty barely matters — trusts its value estimates</td></tr>
+                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">+0.02</td><td class="wt-meaning">Slightly bids more when opponents have been overbidding — gentle escalation</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value near-zero">-0.04</td><td class="wt-meaning">Bids less when opponent behaviour is erratic — cautious around unpredictable players</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The treasure head bids more conservatively than Evo2 (<code>w_ev = 0.23</code> vs 0.33) but
+                                compensates with <code>w_avg_opp = +0.13</code> — it ramps up when opponents are flush.
+                                The opponent-delta weights are subtle: <code>w_mean_delta = +0.02</code> nudges bids up
+                                against aggressive opponents, while <code>w_std_delta = -0.04</code> pulls back when
+                                opponents are unpredictable. Evolution found that a small, steady reaction to opponent
+                                patterns is better than a dramatic one.
+                            </div>
+                        </div>
+
+                        <!-- Invest head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Invest head (8 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+1.94</td><td class="wt-meaning"><strong>Highest bias of any head.</strong> Extremely eager to invest</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value positive">+0.38</td><td class="wt-meaning">Invests more with more rounds left — maximize time to earn returns</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">-0.07</td><td class="wt-meaning">Slightly less aggressive when cash-rich — no need to lock up coins</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value negative">-0.43</td><td class="wt-meaning">Pulls back when opponents are richer — saves coins for auction fights</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value positive">+0.32</td><td class="wt-meaning">But invests more when one opponent leads — concedes auctions, secures safe returns</td></tr>
+                                    <tr><td class="wt-name">w_amount</td><td class="wt-value positive">+0.22</td><td class="wt-meaning">Prefers larger investments — more payout per locked coin</td></tr>
+                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">-0.02</td><td class="wt-meaning">Barely adjusts for opponent aggression on investments</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value near-zero">-0.00</td><td class="wt-meaning">Essentially ignores opponent volatility for investments</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The invest head is remarkably similar to Evo2's — the GA reinforced the same
+                                "invest early, invest often" strategy. The opponent-delta features are near-zero
+                                for investments, which makes sense: investment bidding doesn't benefit much from
+                                knowing opponent aggression patterns since the payoff is deterministic.
+                            </div>
+                        </div>
+
+                        <!-- Loan head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Loan head (8 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value negative">-0.38</td><td class="wt-meaning">Avoids loans by default</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.22</td><td class="wt-meaning">Even less willing early in the game</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value positive">+0.17</td><td class="wt-meaning">Borrows more when already cash-rich — uses loans as leverage, not desperation</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value near-zero">+0.05</td><td class="wt-meaning">Marginal effect from average opponent wealth</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">-0.08</td><td class="wt-meaning">Slight avoidance vs a rich leader</td></tr>
+                                    <tr><td class="wt-name">w_amount</td><td class="wt-value positive">+0.34</td><td class="wt-meaning"><strong>Strongest weight.</strong> Strongly prefers bigger loans — if borrowing, go big</td></tr>
+                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value positive">+0.16</td><td class="wt-meaning">Takes loans when opponents have been overbidding — borrows to match their aggression</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value negative">-0.10</td><td class="wt-meaning">Avoids loans when opponent behaviour is erratic — won't gamble in chaos</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                This is where Evo3's opponent-awareness shines most. The loan head's
+                                <code>w_mean_delta = +0.16</code> is the largest opponent-delta weight across
+                                all three heads — when opponents have been consistently overbidding, Evo3 takes
+                                out a loan to fund competitive bids. But the opposing <code>w_std_delta = -0.10</code>
+                                adds caution: it won't borrow against unpredictable opponents. This "borrow to
+                                compete against aggressive-but-consistent opponents" pattern is exactly the kind
+                                of strategy that's hard to write by hand but natural for evolution to discover.
+                            </div>
+                        </div>
+                    </div>
+                </details>
             </div>
         </details>
     </div>
