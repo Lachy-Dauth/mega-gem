@@ -167,6 +167,7 @@ async function onQuickPlay() {
         state.slotIndex = data.you.slot_index;
         state.isHost = data.you.is_host;
         saveSession();
+        $("g-log").innerHTML = "";
         showScreen("screen-game");
         connectWebSocket();
     } catch (e) {
