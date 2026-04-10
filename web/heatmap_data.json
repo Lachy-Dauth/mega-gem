@@ -47,5 +47,5 @@
   "charts": "ABCDE",
   "seed_start": 200,
   "games_per_chart": 40,
-  "description": "Win rate of 1 challenger (row) vs 3 copies of opponent (column)"
+  "description": "Outright win rate (ties excluded) of 1 challenger (row) vs 3 copies of opponent (column)"
 }

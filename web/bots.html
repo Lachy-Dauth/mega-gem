@@ -360,9 +360,9 @@
         <div class="heatmap-section">
             <h2>Performance Heatmap</h2>
             <p class="muted">
-                Win rate of one challenger (row) vs three copies of the
+                Outright win rate of one challenger (row) vs three copies of the
                 opponent (column) in 4-player games, averaged across all
-                five value charts.
+                five value charts. Ties count as non-wins.
             </p>
             <div id="heatmap-container">
                 <p class="heatmap-empty">Loading heatmap data...</p>
@@ -972,7 +972,8 @@
             if (!resp.ok) throw new Error(resp.statusText);
             const data = await resp.json();
             renderHeatmap(container, data);
-        } catch {
+        } catch (e) {
+            console.error("Heatmap load failed:", e);
             container.innerHTML = '<p class="heatmap-empty">Could not load heatmap data.</p>';
         }
     })();
@@ -1005,7 +1006,8 @@
         }
 
         html += "</tbody></table></div>";
-        html += `<div class="heatmap-meta">${games_per_cell} games per cell (5 charts &times; ${games_per_chart} seeds, starting at seed ${seed_start}). Each cell: 1 challenger (row) vs 3&times; opponent (column).</div>`;
+        const numCharts = data.charts ? data.charts.length : 5;
+        html += `<div class="heatmap-meta">${games_per_cell} games per cell (${numCharts} charts &times; ${games_per_chart} seeds, starting at seed ${seed_start}). Each cell: 1 challenger (row) vs 3&times; opponent (column).</div>`;
         container.innerHTML = html;
     }
 

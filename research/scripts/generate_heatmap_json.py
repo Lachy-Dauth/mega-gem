@@ -85,6 +85,7 @@ def play_one(challenger_factory, opponent_factory, chart: str, seed: int) -> boo
     while not is_game_over(state):
         play_round(state, rng=rng)
     scores = score_game(state)
+    # Strict win — ties count as non-wins (outright win rate).
     return scores[0]["total"] > max(s["total"] for s in scores[1:])
 
 
@@ -123,7 +124,7 @@ def main() -> None:
         "charts": CHARTS,
         "seed_start": SEED_START,
         "games_per_chart": GAMES_PER_CHART,
-        "description": "Win rate of 1 challenger (row) vs 3 copies of opponent (column)",
+        "description": "Outright win rate (ties excluded) of 1 challenger (row) vs 3 copies of opponent (column)",
     }
 
     out = Path(__file__).resolve().parent.parent.parent / "web" / "heatmap_data.json"
