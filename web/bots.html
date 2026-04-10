@@ -136,11 +136,79 @@
             </p>
         </div>
 
+        <!-- Heuristic AI -->
+        <div class="bot-card">
+            <h3>Heuristic AI</h3>
+            <div class="bot-difficulty">Medium</div>
+
+            <p>
+                The Heuristic AI is the first bot with an actual strategy. It
+                estimates the value of each auction card and bids a fraction of
+                that value, keeping coins in reserve for future rounds.
+            </p>
+
+            <div class="section-label">Treasure bidding</div>
+            <p>
+                For treasure cards, the bot estimates how much the offered gems
+                are worth. It does this by predicting what the Value Display will
+                look like at the end of the game — gems it can see (its own hand,
+                the current display) are counted exactly, while hidden gems
+                (opponents' hands, the gem deck) are spread uniformly across
+                unknown slots. Each gem's value is then looked up on the chart.
+                Mission bonuses are also factored in: full credit if winning the
+                gems would complete a mission, and partial credit if it moves the
+                bot closer to one.
+            </p>
+            <p>
+                The final bid is <code>75%</code> of that estimated value, capped
+                so the bot always keeps a reserve of coins for future treasure
+                auctions. The reserve is based on how many gems are still in the
+                supply and their expected average value.
+            </p>
+
+            <div class="section-label">Investment bidding</div>
+            <p>
+                Investments return their face value at the end of the game on top
+                of the locked bid — they're free money. The bot bids its surplus
+                coins (everything above its reserve), and will always bid at
+                least <code>1</code> coin if it can, since any winning bid is
+                profitable.
+            </p>
+
+            <div class="section-label">Loan bidding</div>
+            <p>
+                Loans are net-negative (you pay back the full face value), so
+                the bot only takes them as a last resort — specifically, when it
+                has fewer than <code>5</code> coins and there are still at least
+                3 gems left in the supply worth competing for. Otherwise it
+                bids <code>0</code>.
+            </p>
+
+            <div class="section-label">Revealing gems</div>
+            <p>
+                When choosing which gem to reveal from its hand, the Heuristic AI
+                picks the one that benefits it the most. It scores each gem by
+                how much the Value Display would increase for that colour,
+                weighted by how many more of that colour it owns compared to its
+                opponents. A gem it holds lots of and opponents hold few of is
+                worth boosting; a gem opponents hold more of is worth avoiding.
+                Ties are broken by revealing colours the bot holds least of.
+            </p>
+
+            <div class="section-label">Why it exists</div>
+            <p>
+                Heuristic AI is the <strong>fitness opponent</strong> for the
+                first generation of evolved bots. It provides a meaningful
+                challenge — far above random play — and a stable baseline to
+                measure whether genetic tuning is actually producing improvement.
+            </p>
+        </div>
+
         <!-- Placeholder for future bots -->
         <div class="bot-card">
             <h3>More bots coming soon</h3>
             <p class="coming-soon">
-                Descriptions for Heuristic AI, Evolved AI, Evo2 AI, and Evo3 AI
+                Descriptions for Evolved AI, Evo2 AI, and Evo3 AI
                 will be added here.
             </p>
         </div>
