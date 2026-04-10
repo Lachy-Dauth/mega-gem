@@ -19,6 +19,7 @@
     --pink: #ff6fbc;
     --purple: #b96bff;
     --yellow: #ffd93d;
+    --page-padding: 20px;
 }
 
 * {
@@ -71,7 +72,7 @@ body {
 }
 
 main {
-    padding: 20px;
+    padding: var(--page-padding);
     max-width: 1200px;
     margin: 0 auto;
 }
@@ -689,10 +690,10 @@ button:disabled {
 
     .game-layout .log-card {
         position: sticky;
-        top: 70px;
+        top: var(--page-padding);
         display: flex;
         flex-direction: column;
-        max-height: calc(100vh - 90px);
+        max-height: calc(100vh - var(--page-padding) * 2);
     }
 
     .game-layout .log-card .log {
@@ -703,12 +704,12 @@ button:disabled {
 
     .game-layout .chat-card {
         position: sticky;
-        top: 70px;
+        top: var(--page-padding);
         max-width: none;
         margin: 0;
         display: flex;
         flex-direction: column;
-        max-height: calc(100vh - 90px);
+        max-height: calc(100vh - var(--page-padding) * 2);
     }
 
     .game-layout .chat-card .chat-messages {
