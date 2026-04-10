@@ -437,6 +437,7 @@ function handleServerMessage(msg) {
             break;
         case "game_start":
             showScreen("screen-game");
+            $("g-log").innerHTML = "";
             logEntry(`Game started — chart ${msg.chart}, ${msg.num_players} players`);
             break;
         case "state":
