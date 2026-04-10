@@ -204,12 +204,201 @@
             </p>
         </div>
 
-        <!-- Placeholder for future bots -->
+        <!-- Evolved AI (HyperAdaptiveSplitAI) -->
         <div class="bot-card">
-            <h3>More bots coming soon</h3>
-            <p class="coming-soon">
-                Descriptions for Evolved AI, Evo2 AI, and Evo3 AI
-                will be added here.
+            <h3>Evolved AI</h3>
+            <div class="bot-difficulty">Hard</div>
+
+            <p>
+                The Evolved AI is the first bot whose strategy was discovered
+                by a genetic algorithm rather than written by hand. It builds
+                on the Heuristic AI's foundation but replaces the fixed 75%
+                discount with three independent linear models — one each for
+                treasure, investment, and loan auctions — whose 18 total
+                weights were tuned by evolution.
+            </p>
+
+            <div class="section-label">How the discount works</div>
+            <p>
+                Each of the three "heads" computes a discount factor between
+                0 and 1 from five game-state features: how far through the
+                game you are (progress), the bot's own coin ratio relative to
+                the remaining expected value, the average and top opponent coin
+                ratios, and a variance proxy based on how many hidden gems
+                remain and how sensitive the current value chart is. Each head
+                has its own bias and five learned weights, so treasures,
+                investments, and loans can each react differently to the same
+                game state.
+            </p>
+
+            <div class="section-label">Better value estimation</div>
+            <p>
+                Instead of the Heuristic AI's simple point estimate of the
+                final Value Display, the Evolved AI uses a
+                <strong>hypergeometric distribution</strong>. It models the
+                unknown gems (in opponents' hands and the deck) as draws from
+                an urn without replacement, computing the full probability
+                distribution for each colour's final display count. The
+                expected value of each gem is then
+                <code>E[chart_value(X)]</code> rather than
+                <code>chart_value(E[X])</code> — a significant accuracy
+                improvement on non-linear charts like chart E, where the value
+                peaks at 3 gems then crashes to 0.
+            </p>
+
+            <div class="section-label">Bidding</div>
+            <p>
+                For treasures, the bot multiplies the hypergeometric value
+                estimate (including mission bonuses) by the treasure head's
+                discount, then caps the bid at its spendable coins. For
+                investments, it applies the invest head's discount to its
+                surplus coins and always bids at least 1 (free money). For
+                loans, the loan head's discount is applied to the loan amount
+                — a low discount effectively means "don't take this loan".
+            </p>
+
+            <div class="section-label">Revealing gems</div>
+            <p>
+                Inherited unchanged from the Heuristic AI — pick the gem
+                whose colour boost benefits the bot the most relative to
+                opponents.
+            </p>
+
+            <div class="section-label">Why it exists</div>
+            <p>
+                The Evolved AI demonstrates that a genetic algorithm can
+                discover bidding strategies that beat hand-tuned heuristics.
+                It achieves an <strong>89% win rate</strong> against three
+                Heuristic AI opponents and serves as the training opponent
+                for the next generation of bots.
+            </p>
+        </div>
+
+        <!-- Evo2 AI -->
+        <div class="bot-card">
+            <h3>Evo2 AI</h3>
+            <div class="bot-difficulty">Harder</div>
+
+            <p>
+                Evo2 is a clean-slate redesign that throws out the hand-coded
+                scaffolding of the Evolved AI and lets the genetic algorithm
+                discover everything from scratch. Instead of computing a
+                discount fraction and multiplying it by an estimated value,
+                each head outputs the <strong>bid in coins directly</strong>
+                — a simple linear formula whose 19 total weights encode the
+                full bidding policy.
+            </p>
+
+            <div class="section-label">Direct bid output</div>
+            <p>
+                Each head computes
+                <code>bid = bias + w1*f1 + w2*f2 + ...</code> and the
+                result is clamped to <code>[0, max_legal_bid]</code>.
+                There's no intermediate "discount times value" step, which
+                frees the GA from the implicit assumption that bids should
+                scale proportionally with estimated value.
+            </p>
+
+            <div class="section-label">Smarter features</div>
+            <p>
+                The progress proxy (fraction of the auction deck consumed) is
+                replaced by an exact <strong>expected rounds remaining</strong>
+                calculated via a closed-form multivariate hypergeometric over
+                the known auction deck composition and remaining gem supply.
+                Cash features switch from ratios to raw coin counts (my coins,
+                average opponent coins, top opponent coins) and let the GA
+                learn the right scaling. The treasure head also gets two new
+                per-card features: the <strong>expected value</strong> and
+                <strong>standard deviation</strong> of the prize, both
+                derived from the hypergeometric gem distribution.
+            </p>
+
+            <div class="section-label">Mission probability delta</div>
+            <p>
+                On top of the existing hard/soft mission bonuses, the treasure
+                head factors in a <strong>mission probability delta</strong>
+                for each active mission: the difference between "probability
+                I win this mission if I take the gems" and "probability I win
+                it if the richest opponent takes them", scaled by the mission's
+                coin reward. This captures the competitive value of denying
+                missions to opponents, not just pursuing your own.
+            </p>
+
+            <div class="section-label">Revealing gems</div>
+            <p>
+                Uses the same reveal logic as the Heuristic AI — boost
+                colours you hold more of than opponents.
+            </p>
+
+            <div class="section-label">Why it exists</div>
+            <p>
+                Evo2 proves that removing hand-designed constraints and
+                letting the GA learn freely produces a stronger bot. It was
+                trained against a mix of all prior bots (Random, Heuristic,
+                and Evolved) to avoid overfitting to any single opponent, and
+                achieves a <strong>69% pooled win rate</strong> across that
+                field.
+            </p>
+        </div>
+
+        <!-- Evo3 AI -->
+        <div class="bot-card">
+            <h3>Evo3 AI</h3>
+            <div class="bot-difficulty">Hardest</div>
+
+            <p>
+                Evo3 is the <strong>current champion</strong>. It extends
+                Evo2 with one key innovation: it watches what opponents bid
+                and adjusts its own strategy in real time. Its 25 weights
+                were tuned by evolution against all prior bots.
+            </p>
+
+            <div class="section-label">Opponent-pricing signal</div>
+            <p>
+                After every round, the engine tells each player what happened.
+                Evo3 uses this to record how much the highest opponent bid
+                exceeded a <em>baseline</em> — the bid Evo3 itself would have
+                made with no history. Over the course of a game, this builds
+                up a running log of how aggressively opponents are bidding
+                compared to Evo3's default pricing.
+            </p>
+
+            <div class="section-label">Weighted history</div>
+            <p>
+                Each of the three heads reads two new features: the weighted
+                <strong>mean</strong> and <strong>standard deviation</strong>
+                of the opponent-delta history. Observations from the same
+                category (e.g. treasure history when bidding on a treasure)
+                are weighted 4x more heavily than cross-category observations,
+                since how opponents price loans says less about how they'll
+                price treasures.
+            </p>
+
+            <div class="section-label">No feedback loop</div>
+            <p>
+                A subtle but critical detail: the baseline used to measure
+                opponent deltas is what Evo3 <em>would have bid</em> using
+                the default history values (0, 1), not what it actually bid.
+                If the actual bid were used, the signal would depend on Evo3's
+                own learned response to that signal — a feedback loop. By
+                pinning the baseline to the "no history" bid, the measurement
+                stays stable regardless of how aggressively the weights react.
+            </p>
+
+            <div class="section-label">Revealing gems</div>
+            <p>
+                Same reveal logic as all prior evolved bots — inherited from
+                the Heuristic AI.
+            </p>
+
+            <div class="section-label">Why it exists</div>
+            <p>
+                Evo3 is the strongest bot in the zoo. By reading opponent
+                behaviour it can adapt mid-game — bidding more aggressively
+                against passive opponents and pulling back against aggressive
+                ones. It achieves a <strong>70% pooled win rate</strong>
+                against the full field of all six prior bots and is the
+                default opponent for quick play.
             </p>
         </div>
     </div>
