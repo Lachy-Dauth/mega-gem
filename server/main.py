@@ -87,7 +87,7 @@ class StartRequest(BaseModel):
 
 
 class QuickPlayRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=24)
+    host_name: str = Field(..., min_length=1, max_length=24)
     num_players: int = Field(4, ge=MIN_PLAYERS, le=MAX_PLAYERS)
     ai_kind: str = Field("evo3")
     chart: str = Field("A", pattern="^[A-E]$")
@@ -161,14 +161,17 @@ async def quick_play(req: QuickPlayRequest) -> dict:
         raise HTTPException(status_code=400, detail=f"Unknown AI kind: {req.ai_kind}")
     try:
         room, host_slot = await manager.create_room(
-            host_name=req.name, chart=req.chart, seed=req.seed
+            host_name=req.host_name, chart=req.chart, seed=req.seed
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
     ai_names = ["Avery", "Blair", "Casey", "Dylan"]
-    for i in range(req.num_players - 1):
-        room.add_ai(req.ai_kind, ai_names[i % len(ai_names)])
+    try:
+        for i in range(req.num_players - 1):
+            room.add_ai(req.ai_kind, ai_names[i % len(ai_names)])
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
     loop = asyncio.get_running_loop()
     room.session = GameSession(room, loop)

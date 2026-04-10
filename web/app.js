@@ -143,7 +143,7 @@ async function onQuickPlay() {
     const seed = seedRaw === "" ? null : Number(seedRaw);
     try {
         const data = await api("POST", "/api/rooms/quick_play", {
-            name,
+            host_name: name,
             num_players: numPlayers,
             ai_kind: aiKind,
             chart,
