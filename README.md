@@ -1,13 +1,27 @@
 # mega-gem
 
 A pure-Python implementation of the **MegaGem** auction-and-collection card
-game, plus a small zoo of bidder AIs and a genetic-algorithm tuner that
-breeds the strongest one. Also (eventually) an online version.
+game, plus a small zoo of bidder AIs, a genetic-algorithm tuner that
+breeds the strongest one, an offline vanilla-JS single-player frontend,
+and a FastAPI + WebSocket multiplayer server that lets humans play
+each other (and the AI zoo) from a browser.
 
 The full game rules — turn structure, bid ties, mission categories, value
-charts — live in [`RULES.md`](RULES.md). This README covers everything
-*around* the rules: how to run the game, what each AI does, how to test
-them, how to evolve a stronger one, and how to read the benchmark plots.
+charts — live in [`research/RULES.md`](research/RULES.md). This README
+covers everything *around* the rules: how to run the game, what each AI
+does, how to test them, how to evolve a stronger one, and how to read
+the benchmark plots.
+
+> **Repo layout note.** The canonical engine, AI zoo, tests, GA
+> tuners, and checked-in weights live under **`research/`**. The
+> offline single-player browser frontend (`play/` + the top-level
+> `index.html` redirect) and the multiplayer **`server/`** + **`web/`**
+> live at the repo root. **Every Python command in this README
+> assumes you are inside `research/` *unless* it explicitly runs the
+> multiplayer server** — the research scripts resolve paths like
+> `saved_best_weights/` and `artifacts/` relative to the current
+> working directory; the server resolves them via an absolute
+> `Path(__file__)` lookup and can run from the repo root.
 
 ---
 
@@ -17,13 +31,14 @@ them, how to evolve a stronger one, and how to read the benchmark plots.
 2. [Repo layout](#repo-layout)
 3. [Playing in the terminal](#playing-in-the-terminal)
 4. [Playing in the browser](#playing-in-the-browser)
-5. [The game engine](#the-game-engine)
-6. [The AI zoo](#the-ai-zoo)
-7. [Testing](#testing)
-8. [Evolving a better AI (the GA)](#evolving-a-better-ai-the-ga)
-9. [Benchmarking: pairwise heatmap](#benchmarking-pairwise-heatmap)
-10. [Adding your own AI](#adding-your-own-ai)
-11. [Common gotchas](#common-gotchas)
+5. [Multiplayer (FastAPI server)](#multiplayer-fastapi-server)
+6. [The game engine](#the-game-engine)
+7. [The AI zoo](#the-ai-zoo)
+8. [Testing](#testing)
+9. [Evolving a better AI (the GA)](#evolving-a-better-ai-the-ga)
+10. [Benchmarking: pairwise heatmap](#benchmarking-pairwise-heatmap)
+11. [Adding your own AI](#adding-your-own-ai)
+12. [Common gotchas](#common-gotchas)
 
 ---
 
@@ -39,20 +54,23 @@ python -m venv .venv
 source .venv/bin/activate          # or .venv\Scripts\activate on Windows
 
 # 3. The Python game + tests need no third-party deps.
-#    matplotlib is only required for the GA + heatmap scripts in scripts/.
+#    matplotlib is only required for the GA + heatmap scripts in research/scripts/.
 pip install matplotlib              # only if you want plots
 
-# 4. Run the test suite (should print "Ran 120 tests ... OK")
+# 4. All Python commands live under research/ — switch there.
+cd research
+
+# 5. Run the test suite (should print "Ran 120 tests ... OK")
 python -m unittest discover
 
-# 5. Play a game against three Heuristic AIs in the terminal
+# 6. Play a game against three Heuristic AIs in the terminal
 python -m megagem
 
-# 6. Watch four AIs play each other end-to-end on chart E
+# 7. Watch four AIs play each other end-to-end on chart E
 python -m megagem --all-ai --ai adaptive --chart E --seed 42
 
-# 7. Or play in your browser — no server, no build step:
-open play/index.html       # macOS; on Linux use `xdg-open`, Windows `start`
+# 8. Or play in your browser — no server, no build step (from repo root):
+open ../play/index.html    # macOS; on Linux use `xdg-open`, Windows `start`
 ```
 
 If everything above worked you have a clean install.
@@ -63,57 +81,74 @@ If everything above worked you have a clean install.
 
 ```
 mega-gem/
-├── megagem/                 # Game engine + AIs (the bit you import)
-│   ├── __main__.py          # Terminal CLI entry point: `python -m megagem`
-│   ├── cards.py             # Gem / Auction / Treasure / Loan / Invest cards
-│   ├── engine.py            # setup_game, play_round, score_game
-│   ├── explain.py           # --debug rationale-printing wrapper
-│   ├── missions.py          # Mission deck (shields / pendants / crowns)
-│   ├── players/             # Player ABC + every AI (one module per class)
-│   │   ├── base.py              # Player ABC
-│   │   ├── helpers.py           # Shared value / discount-feature math
-│   │   ├── random_ai.py         # RandomAI
-│   │   ├── human.py             # HumanPlayer
-│   │   ├── heuristic.py         # HeuristicAI
-│   │   ├── adaptive_heuristic.py  # AdaptiveHeuristicAI
-│   │   ├── hypergeometric.py    # HypergeometricAI
-│   │   ├── hyper_adaptive.py    # HyperAdaptiveAI
-│   │   ├── hyper_adaptive_split.py  # HyperAdaptiveSplitAI (GA target)
-│   │   ├── evo2.py              # Evo2AI (GA target)
-│   │   └── evo3.py              # Evo3AI (GA target, current champion)
-│   ├── render.py            # Pretty-printing for the CLI
-│   ├── state.py             # GameState / PlayerState dataclasses
-│   └── value_charts.py      # The five value charts A–E
-├── play/                    # Browser frontend — open index.html, no server
+├── index.html               # Redirect to play/index.html (for GitHub Pages)
+├── play/                    # Offline single-player frontend — open index.html, no server
 │   ├── index.html           # Menu + game screens
 │   ├── style.css            # Dark theme, color-coded gems
 │   ├── megagem.js           # JS port of the engine + RandomAI, HeuristicAI, HyperAdaptiveSplitAI, Evo2AI, Evo3AI
 │   └── ui.js                # UI controller / state machine
-├── scripts/                 # Standalone runnables (NOT imported by megagem/)
-│   ├── evolve_hyper_adaptive.py   # GA tuner for HyperAdaptiveSplitAI
-│   ├── evolve_evo2.py             # GA tuner for Evo2AI
-│   ├── evolve_evo3.py             # GA tuner for Evo3AI
-│   └── heatmap_pairwise.py        # All-vs-all win-rate matrix plot
-├── tests/                   # unittest suite (120 tests, stdlib only)
-│   ├── test_cards.py
-│   ├── test_engine.py
-│   ├── test_heuristic.py    # Big file — covers every AI's helper math
-│   ├── test_evo2.py         # Evo2AI-specific helpers + head-to-head
-│   ├── test_evo3.py         # Evo3AI-specific helpers + head-to-head
-│   ├── test_missions.py
-│   └── test_scoring.py
-├── saved_best_weights/      # Checked-in GA outputs — the CLI reads these
-│   ├── best_weights_4p.json                # HyperAdaptiveSplitAI
-│   ├── best_weights_evo2_vs_old_4p.json    # Evo2AI
-│   └── best_weights_evo3_vs_all_4p.json    # Evo3AI (current champion)
-├── artifacts/               # Transient GA output (gitignored)
+├── server/                  # FastAPI multiplayer server (imports research/megagem)
+│   ├── main.py                 # App + REST routes + WebSocket endpoint
+│   ├── rooms.py                # Room / Slot / RoomManager
+│   ├── session.py              # GameSession — runs the engine in a thread
+│   ├── remote_player.py        # Player adapter whose decisions come over WS
+│   ├── ai_factory.py           # Mirrors research/megagem/__main__.py's AI_FACTORIES
+│   └── protocol.py             # JSON serialization for engine objects
+├── web/                     # Multiplayer browser client (served by server/)
+│   ├── index.html              # Menu → lobby → game → scores
+│   ├── style.css               # Minimal dark theme
+│   └── app.js                  # REST + WebSocket client, DOM rendering
+├── requirements.txt         # Server deps (fastapi, uvicorn, pydantic)
+├── nixpacks.toml            # Railway build config
+├── Procfile                 # Railway start command
+├── railway.json             # Railway service config (healthcheck, restart)
 ├── README.md
-└── RULES.md                 # The actual game rules — read this first
+├── CLAUDE.md                # Cheat-sheet for Claude Code
+└── research/                # Everything Python — run commands from here
+    ├── megagem/                 # Game engine + AIs (the bit you import)
+    │   ├── __main__.py          # Terminal CLI entry point: `python -m megagem`
+    │   ├── cards.py             # Gem / Auction / Treasure / Loan / Invest cards
+    │   ├── engine.py            # setup_game, play_round, score_game
+    │   ├── explain.py           # --debug rationale-printing wrapper
+    │   ├── missions.py          # Mission deck (shields / pendants / crowns)
+    │   ├── players/             # Player ABC + every AI (one module per class)
+    │   │   ├── base.py              # Player ABC
+    │   │   ├── helpers.py           # Shared value / discount-feature math
+    │   │   ├── random_ai.py         # RandomAI
+    │   │   ├── human.py             # HumanPlayer
+    │   │   ├── heuristic.py         # HeuristicAI
+    │   │   ├── hyper_adaptive_split.py  # HyperAdaptiveSplitAI (GA target)
+    │   │   ├── evo2.py              # Evo2AI (GA target)
+    │   │   └── evo3.py              # Evo3AI (GA target, current champion)
+    │   ├── render.py            # Pretty-printing for the CLI
+    │   ├── state.py             # GameState / PlayerState dataclasses
+    │   └── value_charts.py      # The five value charts A–E
+    ├── scripts/                 # Standalone runnables (NOT imported by megagem/)
+    │   ├── evolve_hyper_adaptive.py   # GA tuner for HyperAdaptiveSplitAI
+    │   ├── evolve_evo2.py             # GA tuner for Evo2AI
+    │   ├── evolve_evo3.py             # GA tuner for Evo3AI
+    │   └── heatmap_pairwise.py        # All-vs-all win-rate matrix plot
+    ├── tests/                   # unittest suite (120 tests, stdlib only)
+    │   ├── test_cards.py
+    │   ├── test_engine.py
+    │   ├── test_heuristic.py    # Big file — covers every AI's helper math
+    │   ├── test_evo2.py         # Evo2AI-specific helpers + head-to-head
+    │   ├── test_evo3.py         # Evo3AI-specific helpers + head-to-head
+    │   ├── test_missions.py
+    │   └── test_scoring.py
+    ├── saved_best_weights/      # Checked-in GA outputs — the CLI reads these
+    │   ├── best_weights_4p.json                # HyperAdaptiveSplitAI
+    │   ├── best_weights_evo2_vs_old_4p.json    # Evo2AI
+    │   └── best_weights_evo3_vs_all_4p.json    # Evo3AI (current champion)
+    ├── artifacts/               # Transient GA output (gitignored)
+    └── RULES.md                 # The actual game rules — read this first
 ```
 
 The Python CLI, engine, and tests have **zero** third-party dependencies
 — stdlib only. matplotlib is needed only for the GA + heatmap scripts in
-`scripts/`. The browser frontend in `play/` has no dependencies at all.
+`research/scripts/`. The offline browser frontend in `play/` has no
+dependencies at all. The multiplayer server in `server/` depends on
+FastAPI + uvicorn + pydantic (see `requirements.txt`).
 
 ---
 
@@ -185,16 +220,187 @@ tie-break).
 ### Run it
 
 ```bash
-# Just open the file in any modern browser:
+# Just open the file in any modern browser (paths are from the repo root):
 open play/index.html               # macOS
 xdg-open play/index.html           # Linux
 start play/index.html              # Windows
 # Or double-click it in your file manager.
 ```
 
-You can also serve it with any static server (e.g.
-`python -m http.server` from inside `play/`) if you'd rather hit it
-over HTTP.
+The offline browser frontend lives at the repo root, *not* under
+`research/`, so these commands are from `mega-gem/`, not
+`mega-gem/research/`. You can also serve it with any static server
+(e.g. `python -m http.server` from inside `play/`) if you'd rather hit
+it over HTTP.
+
+> `play/` is fully offline — every AI runs client-side in JavaScript.
+> For **multiplayer against other humans + AI**, use the server in the
+> next section instead.
+
+---
+
+## Multiplayer (FastAPI server)
+
+The `server/` directory is a FastAPI + WebSocket app that hosts
+multiplayer games. It reuses the canonical Python engine and AI zoo
+directly (`server/__init__.py` prepends `research/` to `sys.path`), so
+any AI you add under `research/megagem/players/` is immediately
+available as an opponent in multiplayer games too.
+
+### Run it locally
+
+```bash
+# From the repo root — NOT from inside research/.
+pip install -r requirements.txt
+uvicorn server.main:app --reload
+# → open http://127.0.0.1:8000/
+```
+
+You'll see a menu with **Create room** and **Join existing**. Creating
+a room drops you into a lobby screen with a 5-character share code;
+open a second browser tab (or send the code to a friend) and hit
+**Join**. The host can add AI seats from the lobby, pick the value
+chart, and start the game once there are at least 3 players (humans
++ AI combined).
+
+### Architecture
+
+```
+Browser ──HTTP──▶  /api/rooms (create/join/add_ai/start)
+         ──WS────▶  /api/ws/{code}?player_id=...
+                         │
+                         ▼
+                 ┌─────────────────┐
+                 │  server.main    │  FastAPI app (async)
+                 │  ├─ rooms.py    │  in-memory RoomManager
+                 │  ├─ session.py  │  one background thread per room
+                 │  │    ↓         │
+                 │  │  engine.play_round() ← synchronous
+                 │  │    ↑         │
+                 │  └─ remote_player.py  ← queue.Queue blocks the
+                 │                         game thread until a human
+                 │                         WS message arrives
+                 └─────────────────┘
+```
+
+The single most important design decision: the canonical engine is
+**synchronous** (`play_round` iterates players and calls
+`player.choose_bid` inline), so the multiplayer server drives it in a
+background `threading.Thread` per room and bridges the two worlds with
+thread-safe queues:
+
+- **WS → game thread**: a `queue.Queue` on each `RemotePlayer`.
+  `choose_bid` blocks on `queue.get()`; the async WS handler does
+  `queue.put(amount)` when a `{"type": "bid"}` message arrives.
+- **Game thread → WS**: `asyncio.run_coroutine_threadsafe(room.broadcast(...), loop)`
+  schedules the outbound broadcast on the main event loop.
+
+The session also tracks "pending requests" per seat so a mid-game page
+refresh re-receives the last `request_bid` / `request_reveal` on WS
+reconnect — otherwise a reload would leave the player staring at a
+frozen board while the game thread is still blocked on their queue.
+
+### Protocol
+
+Every WS message is JSON with a `"type"` field:
+
+| Direction | Type | Meaning |
+|-----------|------|---------|
+| S → C | `welcome` | Initial snapshot with your seat index. |
+| S → C | `lobby_update` | Room composition changed. |
+| S → C | `game_start` | Game kicked off. |
+| S → C | `state` | Personalised state snapshot (your own hand is revealed; opponents are hidden-hand). |
+| S → C | `round_start` | New auction card on offer. |
+| S → C | `request_bid` | It's your turn to bid. Includes `max_bid` and the current auction. |
+| S → C | `request_reveal` | You won the round — pick a gem from your hand to reveal. |
+| S → C | `round_end` | Bids, winner, taken gems, completed missions. |
+| S → C | `game_end` | Final scores. |
+| S → C | `chat` | Player chat (broadcast). |
+| S → C | `error` | Something went wrong. |
+| C → S | `bid` | `{amount: int}` — bid in response to `request_bid`. |
+| C → S | `reveal` | `{color: "Blue" \| …}` — gem to reveal from your hand. |
+| C → S | `chat` | `{text: str}` |
+| C → S | `ping` | Heartbeat (server replies `pong`). |
+
+### REST routes
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET`  | `/api/health` | Liveness probe — also used by Railway. |
+| `GET`  | `/api/config` | Min/max players, valid charts, AI kinds. |
+| `POST` | `/api/rooms` | Create a room; returns `{room, you}`. |
+| `GET`  | `/api/rooms/{code}` | Fetch current lobby state. |
+| `POST` | `/api/rooms/{code}/join` | Claim a human seat. |
+| `POST` | `/api/rooms/{code}/add_ai` | (host) Add an AI seat with a given kind. |
+| `POST` | `/api/rooms/{code}/configure` | (host) Change chart / seed in lobby. |
+| `POST` | `/api/rooms/{code}/remove_slot` | (host) Kick a seat. |
+| `POST` | `/api/rooms/{code}/start` | (host) Spin up the `GameSession` thread. |
+| `GET`  | `/api/leaderboard` | Bot win-rate leaderboards (3p / 4p / 5p) over recorded games. |
+
+The server also serves the offline single-player frontend at
+**`/play/`** and exposes a **Leaderboards** button in the topbar that
+hits `/api/leaderboard`.
+
+### Game-record database
+
+Every finished multiplayer game is persisted to a SQLite file via
+`server/db.py`. The schema is two tables (`games` + `game_players`)
+and the leaderboard query is a single GROUP BY filtered to games with
+exactly one human seat — that's the "vs one opponent" framing for the
+three leaderboards (3p / 4p / 5p).
+
+The file path is configurable:
+
+```bash
+# Default — relative to repo root
+data/megagem.db
+
+# Override (use this on Railway with a mounted volume)
+export MEGAGEM_DB_PATH=/data/megagem.db
+```
+
+> **Railway gotcha.** Railway's container filesystem is ephemeral, so
+> the default `data/megagem.db` gets wiped on every redeploy. To keep
+> stats across deploys, attach a Railway Volume and set
+> `MEGAGEM_DB_PATH` to a path inside it.
+
+### Deploying to Railway
+
+The repo ships with both `nixpacks.toml` and a `Procfile`, so Railway's
+Nixpacks builder will pick it up without any manual config:
+
+1. Push this repo to GitHub.
+2. Create a new Railway project → **Deploy from GitHub** → pick the repo.
+3. Railway reads `requirements.txt`, runs `pip install`, and starts
+   `uvicorn server.main:app --host 0.0.0.0 --port $PORT`.
+4. The healthcheck at `/api/health` (configured in `railway.json`)
+   gates the deploy.
+
+Active room state is in-memory only — a redeploy wipes in-flight
+rooms. That's fine for the MVP; swap in Redis or Postgres for
+persistent rooms when it matters. The **finished-game record store**
+(`server/db.py`) is a SQLite file at `MEGAGEM_DB_PATH` and *is*
+persisted across deploys provided you point it at a Railway volume
+mount (see [Game-record database](#game-record-database) above).
+
+### Limitations / next steps
+
+- **No auth.** Players enter a display name and get a random
+  `player_id` back. Anyone with the `player_id` can act as that seat.
+  Good enough for playing with friends over a shared link; not good
+  enough for ranked matches.
+- **Rooms are not persisted.** An in-memory `RoomManager`. A Railway
+  restart drops every active game. Fine for now; swap in Redis when it
+  matters. (The game record DB *is* persisted — see above.)
+- **Single-process.** One uvicorn worker. Scaling horizontally requires
+  moving room state out of process memory first.
+- **No spectators.** A WS connection is tied to a seat. Adding
+  `spectator` connections that just receive state snapshots is a small
+  follow-up.
+- **Frontend is intentionally minimal.** The multiplayer UI in `web/`
+  is functional but much plainer than `play/index.html`. Once the
+  protocol is stable, porting `play/ui.js`'s richer board rendering on
+  top of the WS client is the obvious next step.
 
 ### Menu options
 
@@ -236,10 +442,7 @@ over HTTP.
    with everyone's per-category breakdown and a **Play again** button.
 
 > The browser frontend ships hand-written JS ports of `RandomAI`,
-> `HeuristicAI`, `HyperAdaptiveSplitAI`, `Evo2AI`, and `Evo3AI`. The
-> intermediate Python-only bots (`AdaptiveHeuristicAI`,
-> `HypergeometricAI`, `HyperAdaptiveAI`) are superseded by the
-> `HyperAdaptiveSplit`/`Evo*` line and live only in the terminal CLI.
+> `HeuristicAI`, `HyperAdaptiveSplitAI`, `Evo2AI`, and `Evo3AI`.
 > Evo3's per-category opponent-delta ring buffer — with the same
 > `_last_default_bid` baseline-caching trick — is re-implemented in JS
 > and fed by an `observeRound` hook `play/ui.js` fires right after
@@ -340,46 +543,7 @@ The "vanilla strong" baseline. For each auction:
 This is the AI that the GA's fitness function competes against — beat
 this and you've actually built something.
 
-### 4. `AdaptiveHeuristicAI(HeuristicAI)` — `megagem/players/adaptive_heuristic.py`
-
-Same shape as `HeuristicAI`, but the fixed `0.75` discount is replaced
-by a 5-feature linear model:
-
-```
-discount = clamp(BIAS + Σ W_i * feature_i, 0, 1)
-```
-
-Features: `progress`, `my_cash_ratio`, `avg_cash_ratio`, `top_cash_ratio`,
-`variance`. The constants (`BIAS = 0.70`, `W_PROGRESS = 0.25`, …) were
-hand-tuned. Adds two extra knobs that gate loans entirely
-(`LOAN_CASH_RATIO_MAX`, `LOAN_DISCOUNT_MIN`).
-
-### 5. `HypergeometricAI` — `megagem/players/hypergeometric.py`
-
-Standalone (does not subclass `HeuristicAI`). Replaces the
-"uniform-share over hidden cards" estimator with a true **hypergeometric
-distribution** per color. Critical for chart E because Jensen's
-inequality bites hard:
-
-> `E[chart_value(X)] ≠ chart_value(E[X])` when `chart_value` is
-> non-monotonic.
-
-The vanilla heuristic computes `chart_value(E[X])`; this AI computes
-`E[chart_value(X)]`, which is the right thing.
-
-Bid sizing is still a fixed `DISCOUNT = 0.75`, so on charts where the
-estimator change isn't decisive, the AI is roughly even with
-`HeuristicAI`.
-
-### 6. `HyperAdaptiveAI(AdaptiveHeuristicAI)` — `megagem/players/hyper_adaptive.py`
-
-Combines the best of (4) and (5): hypergeometric value estimation under
-the linear adaptive discount. Also overrides `_reserve_for_future` to
-use the hyper-aware average treasure value.
-
-This was the strongest hand-crafted AI before the GA showed up.
-
-### 7. `HyperAdaptiveSplitAI(HyperAdaptiveAI)` — `megagem/players/hyper_adaptive_split.py`
+### 4. `HyperAdaptiveSplitAI(HeuristicAI)` — `megagem/players/hyper_adaptive_split.py`
 
 The pre-Evo2 champion. The single shared discount was forced to be the
 right answer for treasures, invests, *and* loans simultaneously, which
@@ -497,7 +661,7 @@ python -m unittest tests.test_evo3 -v
 python -m unittest tests.test_heuristic.HyperAdaptiveSplitBidTest -v
 
 # A single test.
-python -m unittest tests.test_heuristic.HyperAdaptiveSplitBidTest.test_default_treasure_bid_matches_old_hyper_adaptive
+python -m unittest tests.test_heuristic.HyperAdaptiveSplitBidTest.test_invest_uses_invest_model_not_treasure_model
 ```
 
 `tests/test_heuristic.py` is intentionally large because the AIs share
@@ -566,13 +730,13 @@ re-eval trick as `evolve_evo3`, with four opponent modes:
 
 | `--opponent` | Opponents | Notes |
 |--------------|-----------|-------|
-| `vs_all` *(default)* | Pools across all 6 prior bots (Random, Heuristic, Adaptive, Hyper, HyperAdapt, EvolvedSplit) | **6× longer per generation**; avoids overfit to any single baseline. EvolvedSplit is loaded from `saved_best_weights/`; the rest use class defaults. |
+| `vs_all` *(default)* | Pools across all 3 prior bots (Random, Heuristic, EvolvedSplit) | **3× longer per generation**; avoids overfit to any single baseline. EvolvedSplit is loaded from `saved_best_weights/`; the rest use class defaults. |
 | `self_play` | Sampled from the current Evo2 population | Pure co-evolution. |
 | `old_evo` | Fixed `HyperAdaptiveSplitAI` from `saved_best_weights/` | Train specifically to beat the pre-Evo2 champion. |
 | `old_evo2` | Fixed `Evo2AI` from `saved_best_weights/` | Strict refinement over the previous best Evo2. |
 
 ```bash
-# Default: averaged fitness against all 6 prior bots.
+# Default: averaged fitness against all 3 prior bots.
 python -m scripts.evolve_evo2
 
 # Head-to-head vs the HyperAdaptiveSplit champion.
@@ -599,12 +763,12 @@ re-eval trick as evolve_evo2, but with three opponent modes:
 
 | `--opponent` | Opponents | Notes |
 |--------------|-----------|-------|
-| `vs_all` *(default)* | Pools across all 6 prior bots (Random, Heuristic, Adaptive, Hyper, HyperAdapt, Evo2) | **6× longer per generation**, but avoids overfit to any single baseline. Evo2 is loaded from `saved_best_weights/` if present, else class defaults. |
+| `vs_all` *(default)* | Pools across all 3 prior bots (Random, Heuristic, Evo2) | **3× longer per generation**, but avoids overfit to any single baseline. Evo2 is loaded from `saved_best_weights/` if present, else class defaults. |
 | `vs_evo2` | Fixed `Evo2AI` from `saved_best_weights/` | Strict refinement over the immediate predecessor. |
 | `self_play` | Sampled from the current Evo3 population | Pure co-evolution. |
 
 ```bash
-# Default: averaged fitness against all 6 prior bots.
+# Default: averaged fitness against all 3 prior bots.
 python -m scripts.evolve_evo3
 
 # Head-to-head vs the previous champion.
@@ -659,9 +823,9 @@ col]` is the win rate of one `row` AI seated against three copies of
 seed range is set well above every GA's training seeds (default 200..)
 so the evolved-AI rows reflect generalisation, not memorisation.
 
-The current matrix covers **8 AIs**: `Random`, `Heuristic`, `Adaptive`,
-`Hyper`, `HyperAdapt`, `EvolvedSplit` (GA-tuned `HyperAdaptiveSplitAI`),
-`Evo2`, `Evo3`. Each cell is 1000 games (5 charts × 200 seeds).
+The current matrix covers **5 AIs**: `Random`, `Heuristic`,
+`EvolvedSplit` (GA-tuned `HyperAdaptiveSplitAI`), `Evo2`, `Evo3`. Each
+cell is 1000 games (5 charts × 200 seeds).
 
 ### Run it
 
@@ -781,11 +945,6 @@ in `megagem/players/`.
   batch than generation N-1. The final "winner" is chosen by a
   held-out re-eval of the top-5 elites *after* the main loop, not by
   picking the best per-generation score.
-* **HyperAdapt loses to plain Heuristic in the heatmap** — yes, this
-  surprised us too. A single shared discount head can't simultaneously
-  be the right answer for treasures, invests, and loans, so smarter
-  value estimation alone doesn't help. That's why
-  `HyperAdaptiveSplitAI` (and later Evo2 / Evo3) exist.
 * **`python megagem/__main__.py` doesn't work** — use
   `python -m megagem` so the package imports resolve correctly.
 * **Reveal phase is mandatory** — the auction winner *must* reveal a

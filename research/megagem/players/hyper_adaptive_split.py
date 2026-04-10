@@ -22,10 +22,12 @@ from ..engine import max_legal_bid
 from .helpers import (
     _DiscountFeatures,
     _format_discount_features,
+    _hyper_avg_treasure_value,
     _hyper_compute_discount_features,
     _hyper_treasure_value,
+    _remaining_supply,
 )
-from .hyper_adaptive import HyperAdaptiveAI
+from .heuristic import HeuristicAI
 
 if TYPE_CHECKING:
     from ..state import GameState, PlayerState
@@ -91,15 +93,12 @@ class _BidModel:
         )
 
 
-class HyperAdaptiveSplitAI(HyperAdaptiveAI):
-    """HyperAdaptiveAI with three independent linear discount models.
+class HyperAdaptiveSplitAI(HeuristicAI):
+    """Three independent linear discount models over hypergeometric value estimates.
 
-    Inherits ``_reserve_for_future``, ``choose_gem_to_reveal``, the value-
-    estimation plumbing, and the discount-feature builder from its parents.
-    Only ``choose_bid`` is overridden, and the two ``LOAN_*`` thresholds
-    from ``AdaptiveHeuristicAI`` are deliberately bypassed: with a
-    dedicated loan model, ``loan_model.discount(...)`` near 0 already
-    produces a bid of 0 for unfavourable states.
+    Inherits ``choose_gem_to_reveal`` from ``HeuristicAI``. Overrides
+    ``choose_bid`` with three per-auction-type ``_BidModel`` heads and
+    ``_reserve_for_future`` with a hypergeometric-aware reserve.
 
     Constructor accepts optional ``treasure``/``invest``/``loan`` model
     overrides; the GA driver builds instances via ``from_weights`` so the
@@ -156,6 +155,15 @@ class HyperAdaptiveSplitAI(HyperAdaptiveAI):
         i = _BidModel(*weights[6:12])
         l = _BidModel(*weights[12:18])
         return cls(name, treasure=t, invest=i, loan=l, seed=seed)
+
+    def _reserve_for_future(
+        self, public_state: "GameState", my_state: "PlayerState"
+    ) -> int:
+        """Hyper-aware reserve. Same shape as HeuristicAI's, hyper avg."""
+        gems_left = _remaining_supply(public_state)
+        future_treasures = max(0, gems_left // 2)
+        avg_value = _hyper_avg_treasure_value(public_state, my_state)
+        return int(future_treasures * avg_value * 0.2)
 
     def choose_bid(
         self,
