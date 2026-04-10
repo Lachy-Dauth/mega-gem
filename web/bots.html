@@ -858,7 +858,7 @@
                     Evo3 is the strongest bot in the zoo. By reading opponent
                     behaviour it can adapt mid-game — bidding more aggressively
                     against passive opponents and pulling back against aggressive
-                    ones. It achieves a <strong>70% pooled win rate</strong>
+                    ones. It achieves a <strong>72% pooled win rate</strong>
                     against the full field of all six prior bots and is the
                     default opponent for quick play.
                 </p>
@@ -881,24 +881,25 @@
                             <table class="weight-table">
                                 <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
                                 <tbody>
-                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+0.97</td><td class="wt-meaning">Moderate positive floor — slightly more aggressive baseline than Evo2</td></tr>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+0.95</td><td class="wt-meaning">Moderate positive floor — slightly more aggressive baseline than Evo2</td></tr>
                                     <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.23</td><td class="wt-meaning">Bids less with more rounds remaining — stronger patience than Evo2</td></tr>
-                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">+0.06</td><td class="wt-meaning">Modest coin sensitivity — relies more on value estimation than budget</td></tr>
-                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value positive">+0.13</td><td class="wt-meaning">Bids harder when opponents are richer — competes for treasures under pressure</td></tr>
-                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">+0.03</td><td class="wt-meaning">Near-zero — top opponent doesn't matter much, uses opponent delta signal instead</td></tr>
-                                    <tr><td class="wt-name">w_ev</td><td class="wt-value positive">+0.23</td><td class="wt-meaning"><strong>Core pricing logic.</strong> Bids ~23% of estimated value — more conservative than Evo2's 33%</td></tr>
-                                    <tr><td class="wt-name">w_std</td><td class="wt-value near-zero">+0.01</td><td class="wt-meaning">Uncertainty barely matters — trusts its value estimates</td></tr>
-                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">+0.02</td><td class="wt-meaning">Slightly bids more when opponents have been overbidding — gentle escalation</td></tr>
-                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value near-zero">-0.04</td><td class="wt-meaning">Bids less when opponent behaviour is erratic — cautious around unpredictable players</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">+0.09</td><td class="wt-meaning">Modest coin sensitivity — relies more on value estimation than budget</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value positive">+0.20</td><td class="wt-meaning">Bids harder when opponents are richer — competes for treasures under pressure</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">-0.03</td><td class="wt-meaning">Near-zero — top opponent doesn't matter much, uses opponent delta signal instead</td></tr>
+                                    <tr><td class="wt-name">w_ev</td><td class="wt-value positive">+0.29</td><td class="wt-meaning"><strong>Core pricing logic.</strong> Bids ~29% of estimated value — more conservative than Evo2's 33%</td></tr>
+                                    <tr><td class="wt-name">w_std</td><td class="wt-value negative">-0.15</td><td class="wt-meaning">Bids less when value is uncertain — avoids overpaying on risky cards</td></tr>
+                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">-0.03</td><td class="wt-meaning">Slightly bids less when opponents overbid — avoids bidding wars on treasures</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value near-zero">-0.09</td><td class="wt-meaning">Bids less when opponent behaviour is erratic — cautious around unpredictable players</td></tr>
                                 </tbody>
                             </table>
                             <div class="wa-insight">
-                                The treasure head bids more conservatively than Evo2 (<code>w_ev = 0.23</code> vs 0.33) but
-                                compensates with <code>w_avg_opp = +0.13</code> — it ramps up when opponents are flush.
-                                The opponent-delta weights are subtle: <code>w_mean_delta = +0.02</code> nudges bids up
-                                against aggressive opponents, while <code>w_std_delta = -0.04</code> pulls back when
-                                opponents are unpredictable. Evolution found that a small, steady reaction to opponent
-                                patterns is better than a dramatic one.
+                                The treasure head bids more conservatively than Evo2 (<code>w_ev = 0.29</code> vs 0.33) but
+                                compensates with <code>w_avg_opp = +0.20</code> — it ramps up when opponents are flush.
+                                The new <code>w_std = -0.15</code> is a significant change: the retrained Evo3 actively
+                                discounts uncertain cards rather than ignoring variance. The opponent-delta weights both
+                                pull bids down (<code>w_mean_delta = -0.03</code>, <code>w_std_delta = -0.09</code>) —
+                                evolution learned that on treasures, it's better to step back when opponents are
+                                aggressive or unpredictable rather than escalate.
                             </div>
                         </div>
 
@@ -908,14 +909,14 @@
                             <table class="weight-table">
                                 <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
                                 <tbody>
-                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+1.94</td><td class="wt-meaning"><strong>Highest bias of any head.</strong> Extremely eager to invest</td></tr>
-                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value positive">+0.38</td><td class="wt-meaning">Invests more with more rounds left — maximize time to earn returns</td></tr>
-                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">-0.07</td><td class="wt-meaning">Slightly less aggressive when cash-rich — no need to lock up coins</td></tr>
-                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value negative">-0.43</td><td class="wt-meaning">Pulls back when opponents are richer — saves coins for auction fights</td></tr>
-                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value positive">+0.32</td><td class="wt-meaning">But invests more when one opponent leads — concedes auctions, secures safe returns</td></tr>
-                                    <tr><td class="wt-name">w_amount</td><td class="wt-value positive">+0.22</td><td class="wt-meaning">Prefers larger investments — more payout per locked coin</td></tr>
-                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">-0.02</td><td class="wt-meaning">Barely adjusts for opponent aggression on investments</td></tr>
-                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value near-zero">-0.00</td><td class="wt-meaning">Essentially ignores opponent volatility for investments</td></tr>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+2.04</td><td class="wt-meaning"><strong>Highest bias of any head.</strong> Extremely eager to invest</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value positive">+0.26</td><td class="wt-meaning">Invests more with more rounds left — maximize time to earn returns</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">-0.02</td><td class="wt-meaning">Near-zero coin sensitivity — invest regardless of current balance</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value negative">-0.37</td><td class="wt-meaning">Pulls back when opponents are richer — saves coins for auction fights</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value positive">+0.33</td><td class="wt-meaning">But invests more when one opponent leads — concedes auctions, secures safe returns</td></tr>
+                                    <tr><td class="wt-name">w_amount</td><td class="wt-value near-zero">+0.09</td><td class="wt-meaning">Mild preference for larger investments</td></tr>
+                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">-0.08</td><td class="wt-meaning">Slightly reduces investment when opponents have been overbidding</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value near-zero">+0.03</td><td class="wt-meaning">Near-zero — opponent volatility barely affects investment decisions</td></tr>
                                 </tbody>
                             </table>
                             <div class="wa-insight">
@@ -932,24 +933,25 @@
                             <table class="weight-table">
                                 <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
                                 <tbody>
-                                    <tr><td class="wt-name">bias</td><td class="wt-value negative">-0.38</td><td class="wt-meaning">Avoids loans by default</td></tr>
-                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.22</td><td class="wt-meaning">Even less willing early in the game</td></tr>
-                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value positive">+0.17</td><td class="wt-meaning">Borrows more when already cash-rich — uses loans as leverage, not desperation</td></tr>
-                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value near-zero">+0.05</td><td class="wt-meaning">Marginal effect from average opponent wealth</td></tr>
-                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">-0.08</td><td class="wt-meaning">Slight avoidance vs a rich leader</td></tr>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value negative">-0.46</td><td class="wt-meaning">Avoids loans by default — stronger aversion than before</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.29</td><td class="wt-meaning">Even less willing early in the game</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">+0.01</td><td class="wt-meaning">Near-zero — loan decisions no longer depend on current balance</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value positive">+0.17</td><td class="wt-meaning">Borrows when opponents are cash-rich — uses loans to stay competitive</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">-0.04</td><td class="wt-meaning">Slight avoidance vs a rich leader</td></tr>
                                     <tr><td class="wt-name">w_amount</td><td class="wt-value positive">+0.34</td><td class="wt-meaning"><strong>Strongest weight.</strong> Strongly prefers bigger loans — if borrowing, go big</td></tr>
-                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value positive">+0.16</td><td class="wt-meaning">Takes loans when opponents have been overbidding — borrows to match their aggression</td></tr>
-                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value negative">-0.10</td><td class="wt-meaning">Avoids loans when opponent behaviour is erratic — won't gamble in chaos</td></tr>
+                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">-0.09</td><td class="wt-meaning">Avoids loans when opponents overbid — no longer borrows to escalate</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value positive">+0.18</td><td class="wt-meaning"><strong>Key shift.</strong> Takes loans when opponent behaviour is volatile — borrows to exploit chaos</td></tr>
                                 </tbody>
                             </table>
                             <div class="wa-insight">
-                                This is where Evo3's opponent-awareness shines most. The loan head's
-                                <code>w_mean_delta = +0.16</code> is the largest opponent-delta weight across
-                                all three heads — when opponents have been consistently overbidding, Evo3 takes
-                                out a loan to fund competitive bids. But the opposing <code>w_std_delta = -0.10</code>
-                                adds caution: it won't borrow against unpredictable opponents. This "borrow to
-                                compete against aggressive-but-consistent opponents" pattern is exactly the kind
-                                of strategy that's hard to write by hand but natural for evolution to discover.
+                                The retrained loan head shows a fascinating strategic reversal. The old Evo3
+                                borrowed against consistent overbidders (<code>w_mean_delta = +0.16</code>); the
+                                new one does the opposite — <code>w_mean_delta = -0.09</code> avoids loans when
+                                opponents overbid, while <code>w_std_delta = +0.18</code> takes loans when opponents
+                                are <em>volatile</em>. The new strategy: exploit unpredictable opponents by borrowing
+                                to fund opportunistic bids when they under-bid, rather than escalating against
+                                consistent aggressors. Combined with <code>w_avg_opp = +0.17</code>, the loan head
+                                now says "borrow when opponents are rich and erratic" — a subtler read of the table.
                             </div>
                         </div>
                     </div>
