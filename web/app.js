@@ -201,15 +201,11 @@ function renderLobby() {
         left.appendChild(el("span", "slot-name", slot.name));
         const tag = el("span", "slot-tag " + slot.kind, slot.kind === "ai" ? `AI: ${slot.ai_kind}` : "human");
         left.appendChild(tag);
-        if (slot.index === 0 || state.room.host_player_id === slot.player_id) {
-            // Only the server knows the host player_id; but the first
-            // slot is always the host in the current flow.
-        }
-        if (slot.index === 0) {
+        if (slot.index === state.room.host_slot_index) {
             left.appendChild(el("span", "slot-tag host", "host"));
         }
         li.appendChild(left);
-        if (state.isHost && slot.index !== 0) {
+        if (state.isHost && slot.index !== state.room.host_slot_index) {
             const btn = el("button", "ghost", "Kick");
             btn.onclick = () => onKickSlot(slot);
             li.appendChild(btn);
@@ -244,7 +240,7 @@ async function onKickSlot(slot) {
     try {
         await api("POST", `/api/rooms/${state.roomCode}/remove_slot`, {
             player_id: state.playerId,
-            target_player_id: slot.player_id || `ai-slot-${slot.index}`,
+            target_slot_index: slot.index,
         });
     } catch (e) {
         toast(e.message, "error");

@@ -89,7 +89,7 @@ class StartRequest(BaseModel):
 
 class RemoveSlotRequest(BaseModel):
     player_id: str
-    target_player_id: str
+    target_slot_index: int
 
 
 # ---------------------------------------------------------------------------
@@ -221,9 +221,9 @@ async def remove_slot(code: str, req: RemoveSlotRequest) -> dict:
         raise HTTPException(status_code=403, detail="Only the host can remove seats")
     if room.status != "lobby":
         raise HTTPException(status_code=409, detail="Cannot remove seats mid-game")
-    if req.target_player_id == room.host_player_id:
+    if req.target_slot_index == room.host_slot_index:
         raise HTTPException(status_code=400, detail="Host cannot remove themselves")
-    if not room.remove_slot(req.target_player_id):
+    if not room.remove_slot_by_index(req.target_slot_index):
         raise HTTPException(status_code=404, detail="Slot not found")
     await _broadcast_lobby(room)
     return {"room": room.public_view()}
@@ -314,29 +314,32 @@ async def game_ws(
     try:
         while True:
             message = await websocket.receive_json()
-            await _handle_ws_message(room, slot, message)
+            await _handle_ws_message(room, slot, websocket, message)
     except WebSocketDisconnect:
         logger.info("player %s disconnected from %s", slot.name, code)
     except Exception:  # noqa: BLE001
         logger.exception("ws handler crashed")
     finally:
-        slot.connected = False
         if slot.websocket is websocket:
+            slot.connected = False
             slot.websocket = None
-        # Fire-and-forget lobby update so other players see the drop.
-        if room.status == "lobby":
-            await _broadcast_lobby(room)
+            # Fire-and-forget lobby update so other players see the drop.
+            if room.status == "lobby":
+                await _broadcast_lobby(room)
 
 
-async def _handle_ws_message(room, slot, message: dict) -> None:
+async def _handle_ws_message(room, slot, websocket: WebSocket, message: dict) -> None:
     msg_type = message.get("type")
     if msg_type == "ping":
-        await slot.websocket.send_json({"type": "pong"})
+        await websocket.send_json({"type": "pong"})
         return
     if msg_type == "bid":
         if room.session is None:
             return
-        amount = int(message.get("amount", 0))
+        try:
+            amount = int(message.get("amount", 0))
+        except (TypeError, ValueError):
+            amount = 0
         room.session.submit_bid(slot.index, amount)
         return
     if msg_type == "reveal":

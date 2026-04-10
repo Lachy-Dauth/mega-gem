@@ -58,6 +58,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger("megagem.session")
 
 
+def _log_future_error(future: "asyncio.Future") -> None:
+    """Callback for fire-and-forget coroutines scheduled from the game thread."""
+    try:
+        future.result()
+    except Exception:
+        logger.exception("emit coroutine failed")
+
+
 class GameSession:
     """One game, one room, one background thread."""
 
@@ -169,13 +177,17 @@ class GameSession:
 
     def _emit(self, message: dict) -> None:
         """Broadcast to every connected human in the room."""
-        asyncio.run_coroutine_threadsafe(self.room.broadcast(message), self.loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self.room.broadcast(message), self.loop
+        )
+        future.add_done_callback(_log_future_error)
 
     def _emit_to(self, player_idx: int, message: dict) -> None:
         """Send to one specific seat."""
-        asyncio.run_coroutine_threadsafe(
+        future = asyncio.run_coroutine_threadsafe(
             self.room.send_to(player_idx, message), self.loop
         )
+        future.add_done_callback(_log_future_error)
 
     def _emit_state_snapshots(self) -> None:
         """Send each human a personalised state snapshot.

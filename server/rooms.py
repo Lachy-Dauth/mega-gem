@@ -135,7 +135,23 @@ class Room:
                 return True
         return False
 
+    def remove_slot_by_index(self, index: int) -> bool:
+        if index < 0 or index >= len(self.slots):
+            return False
+        del self.slots[index]
+        for j, s in enumerate(self.slots):
+            s.index = j
+        self.updated_at = time.time()
+        return True
+
     # -- Lobby view -------------------------------------------------------
+
+    @property
+    def host_slot_index(self) -> int:
+        for slot in self.slots:
+            if slot.player_id == self.host_player_id:
+                return slot.index
+        return 0
 
     def public_view(self) -> dict:
         return {
@@ -143,7 +159,7 @@ class Room:
             "status": self.status,
             "chart": self.chart,
             "seed": self.seed,
-            "host_player_id": self.host_player_id,
+            "host_slot_index": self.host_slot_index,
             "min_players": MIN_PLAYERS,
             "max_players": MAX_PLAYERS,
             "slots": [s.public_view() for s in self.slots],

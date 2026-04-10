@@ -51,6 +51,7 @@ class RemotePlayer(Player):
         self.reveal_queue: "queue.Queue[object]" = queue.Queue()
         # Set by GameSession right after construction.
         self.session: "GameSession | None" = None
+        self._stopped = False
 
     # ------------------------------------------------------------------
     # Engine callbacks — run on the game thread.
@@ -64,7 +65,14 @@ class RemotePlayer(Player):
     ) -> int:
         if self.session is not None:
             self.session.request_bid(self.player_idx)
-        value = self.bid_queue.get()
+        while True:
+            try:
+                value = self.bid_queue.get(timeout=5.0)
+                break
+            except queue.Empty:
+                if self._stopped:
+                    return 0
+                continue
         if value is _SHUTDOWN:
             # Session is dying — return a legal no-op and let the
             # engine unwind. ``clamp_bid`` will coerce this into range.
@@ -87,7 +95,14 @@ class RemotePlayer(Player):
         if self.session is not None:
             self.session.request_reveal(self.player_idx, my_state.hand)
 
-        value = self.reveal_queue.get()
+        while True:
+            try:
+                value = self.reveal_queue.get(timeout=5.0)
+                break
+            except queue.Empty:
+                if self._stopped:
+                    return my_state.hand[0]
+                continue
         if value is _SHUTDOWN:
             return my_state.hand[0]
 
@@ -115,5 +130,6 @@ class RemotePlayer(Player):
 
     def shutdown(self) -> None:
         """Unblock any waiting ``choose_*`` call so the game thread exits."""
+        self._stopped = True
         self.bid_queue.put(_SHUTDOWN)
         self.reveal_queue.put(_SHUTDOWN)
