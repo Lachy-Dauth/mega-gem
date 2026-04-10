@@ -680,9 +680,6 @@ function renderChat() {
 const AI_KIND_LABELS = {
     random: "Random",
     heuristic: "Heuristic",
-    adaptive: "Adaptive",
-    hyper: "Hypergeometric",
-    hyper_adapt: "Hyper-Adaptive",
     evolved: "EvolvedSplit",
     evo2: "Evo2",
     evo3: "Evo3",

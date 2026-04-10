@@ -823,7 +823,7 @@ class HyperAdaptiveSplitAI {
     }
 
     reserveForFuture(state, myState) {
-        // Mirrors HyperAdaptiveAI._reserve_for_future: hyper avg × halved gem
+        // Hyper-aware reserve: hyper avg × halved gem
         // supply × 0.2, evaluated against *this* player's view of remaining
         // treasure value (not seat 0).
         const gemsLeft = remainingSupply(state);
@@ -862,7 +862,7 @@ class HyperAdaptiveSplitAI {
         return 0;
     }
 
-    // Reveal logic mirrors HeuristicAI/HypergeometricAI: pick the gem that
+    // Reveal logic mirrors HeuristicAI: pick the gem that
     // maximises (chart-delta × my-vs-opp net holding), tiebreak preferring
     // colors I hold less of.
     chooseGemToReveal(state, myState) {
@@ -1329,7 +1329,7 @@ class Evo2AI {
         return 0;
     }
 
-    // Reveal logic is identical to HeuristicAI/HypergeometricAI — the
+    // Reveal logic is identical to HeuristicAI — the
     // Evo2 redesign targets bidding only.
     chooseGemToReveal(state, myState) {
         const chart = state.chart;

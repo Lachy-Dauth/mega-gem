@@ -11,7 +11,6 @@ value-estimation and discount-feature math lives in
 :mod:`megagem.players` continues to work via the re-exports below.
 """
 
-from .adaptive_heuristic import AdaptiveHeuristicAI
 from .base import Player
 from .evo2 import Evo2AI
 from .evo3 import Evo3AI
@@ -40,20 +39,15 @@ from .helpers import (
 )
 from .heuristic import HeuristicAI
 from .human import HumanPlayer
-from .hyper_adaptive import HyperAdaptiveAI
 from .hyper_adaptive_split import HyperAdaptiveSplitAI, _BidModel
-from .hypergeometric import HypergeometricAI
 from .random_ai import RandomAI
 
 __all__ = [
-    "AdaptiveHeuristicAI",
     "Evo2AI",
     "Evo3AI",
     "HeuristicAI",
     "HumanPlayer",
-    "HyperAdaptiveAI",
     "HyperAdaptiveSplitAI",
-    "HypergeometricAI",
     "Player",
     "RandomAI",
     "_BidModel",

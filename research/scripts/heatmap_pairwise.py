@@ -30,13 +30,10 @@ import numpy as np  # noqa: E402
 
 from megagem.engine import is_game_over, play_round, score_game, setup_game
 from megagem.players import (
-    AdaptiveHeuristicAI,
     Evo2AI,
     Evo3AI,
     HeuristicAI,
-    HyperAdaptiveAI,
     HyperAdaptiveSplitAI,
-    HypergeometricAI,
     RandomAI,
 )
 
@@ -79,9 +76,6 @@ def make_factories() -> dict:
     factories: dict = {
         "Random":       lambda name, seed: RandomAI(name, seed=seed),
         "Heuristic":    lambda name, seed: HeuristicAI(name, seed=seed),
-        "Adaptive":     lambda name, seed: AdaptiveHeuristicAI(name, seed=seed),
-        "Hyper":        lambda name, seed: HypergeometricAI(name, seed=seed),
-        "HyperAdapt":   lambda name, seed: HyperAdaptiveAI(name, seed=seed),
     }
 
     evolved = _load_evolved()

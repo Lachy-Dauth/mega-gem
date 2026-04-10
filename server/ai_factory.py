@@ -19,13 +19,10 @@ from pathlib import Path
 from typing import Callable
 
 from megagem.players import (
-    AdaptiveHeuristicAI,
     Evo2AI,
     Evo3AI,
     HeuristicAI,
-    HyperAdaptiveAI,
     HyperAdaptiveSplitAI,
-    HypergeometricAI,
     Player,
     RandomAI,
 )
@@ -89,9 +86,6 @@ def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
 AI_FACTORIES: dict[str, AIFactory] = {
     "random":      lambda name, *, seed, num_players: RandomAI(name, seed=seed),
     "heuristic":   lambda name, *, seed, num_players: HeuristicAI(name, seed=seed),
-    "adaptive":    lambda name, *, seed, num_players: AdaptiveHeuristicAI(name, seed=seed),
-    "hyper":       lambda name, *, seed, num_players: HypergeometricAI(name, seed=seed),
-    "hyper_adapt": lambda name, *, seed, num_players: HyperAdaptiveAI(name, seed=seed),
     "evolved":     _evolved_factory,
     "evo2":        _evo2_factory,
     "evo3":        _evo3_factory,

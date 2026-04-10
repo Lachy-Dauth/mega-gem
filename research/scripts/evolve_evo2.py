@@ -14,7 +14,7 @@ Outputs land in ``artifacts/`` (gitignored):
 
 where ``{tag}`` is one of:
 
-* ``vs_all``       — averaged fitness across all six previous bots (default)
+* ``vs_all``       — averaged fitness across all three previous bots (default)
 * ``vs_old``       — fitness vs ``HyperAdaptiveSplitAI`` only
 * ``vs_old_evo2``  — fitness vs a frozen Evo2 snapshot
 * ``self``         — self-play within the current population
@@ -25,15 +25,14 @@ Four opponent modes:
 
 1. **``--opponent vs_all`` (default).** For each individual, run
    ``games_per_chart`` games on each of the five value charts against
-   ``num_players − 1`` copies of each of six previous bots
+   ``num_players − 1`` copies of each of three previous bots
    (:class:`RandomAI`, :class:`HeuristicAI`,
-   :class:`AdaptiveHeuristicAI`, :class:`HypergeometricAI`,
-   :class:`HyperAdaptiveAI`, :class:`HyperAdaptiveSplitAI`). The
+   :class:`HyperAdaptiveSplitAI`). The
    ``HyperAdaptiveSplitAI`` opponents use the GA-tuned weights from
-   ``saved_best_weights/``; the other five use class defaults.
+   ``saved_best_weights/``; the other two use class defaults.
    Fitness is the overall pooled win rate — equivalently the average
-   of the six per-opponent win rates since every type gets the same
-   number of games. Takes **6× longer** per generation than the
+   of the three per-opponent win rates since every type gets the same
+   number of games. Takes **3× longer** per generation than the
    single-opponent modes but produces a challenger that doesn't
    overfit to any one baseline.
 
@@ -85,12 +84,9 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from megagem.engine import is_game_over, play_round, score_game, setup_game
 from megagem.players import (
-    AdaptiveHeuristicAI,
     Evo2AI,
     HeuristicAI,
-    HyperAdaptiveAI,
     HyperAdaptiveSplitAI,
-    HypergeometricAI,
     Player,
     RandomAI,
 )
@@ -253,9 +249,6 @@ def _make_vs_all_providers(
     return [
         ("Random",       _simple_provider(lambda n, s: RandomAI(n, seed=s))),
         ("Heuristic",    _simple_provider(lambda n, s: HeuristicAI(n, seed=s))),
-        ("Adaptive",     _simple_provider(lambda n, s: AdaptiveHeuristicAI(n, seed=s))),
-        ("Hyper",        _simple_provider(lambda n, s: HypergeometricAI(n, seed=s))),
-        ("HyperAdapt",   _simple_provider(lambda n, s: HyperAdaptiveAI(n, seed=s))),
         ("EvolvedSplit", _old_evo_provider),
     ]
 
@@ -867,8 +860,8 @@ def main() -> None:
         default="vs_all",
         help=(
             "Opponent source. Default 'vs_all' averages win rate across "
-            "all six previous bots (Random, Heuristic, Adaptive, Hyper, "
-            "HyperAdapt, EvolvedSplit) — takes 6× longer than single-"
+            "all three previous bots (Random, Heuristic, "
+            "EvolvedSplit) — takes 3× longer than single-"
             "opponent modes but avoids overfit. 'self_play' samples from "
             "the current population each generation; 'old_evo' uses "
             "fixed HyperAdaptiveSplitAI loaded from saved_best_weights/; "

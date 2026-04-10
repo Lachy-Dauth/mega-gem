@@ -117,9 +117,6 @@ mega-gem/
     │   │   ├── random_ai.py         # RandomAI
     │   │   ├── human.py             # HumanPlayer
     │   │   ├── heuristic.py         # HeuristicAI
-    │   │   ├── adaptive_heuristic.py  # AdaptiveHeuristicAI
-    │   │   ├── hypergeometric.py    # HypergeometricAI
-    │   │   ├── hyper_adaptive.py    # HyperAdaptiveAI
     │   │   ├── hyper_adaptive_split.py  # HyperAdaptiveSplitAI (GA target)
     │   │   ├── evo2.py              # Evo2AI (GA target)
     │   │   └── evo3.py              # Evo3AI (GA target, current champion)
@@ -445,10 +442,7 @@ mount (see [Game-record database](#game-record-database) above).
    with everyone's per-category breakdown and a **Play again** button.
 
 > The browser frontend ships hand-written JS ports of `RandomAI`,
-> `HeuristicAI`, `HyperAdaptiveSplitAI`, `Evo2AI`, and `Evo3AI`. The
-> intermediate Python-only bots (`AdaptiveHeuristicAI`,
-> `HypergeometricAI`, `HyperAdaptiveAI`) are superseded by the
-> `HyperAdaptiveSplit`/`Evo*` line and live only in the terminal CLI.
+> `HeuristicAI`, `HyperAdaptiveSplitAI`, `Evo2AI`, and `Evo3AI`.
 > Evo3's per-category opponent-delta ring buffer — with the same
 > `_last_default_bid` baseline-caching trick — is re-implemented in JS
 > and fed by an `observeRound` hook `play/ui.js` fires right after
@@ -549,46 +543,7 @@ The "vanilla strong" baseline. For each auction:
 This is the AI that the GA's fitness function competes against — beat
 this and you've actually built something.
 
-### 4. `AdaptiveHeuristicAI(HeuristicAI)` — `megagem/players/adaptive_heuristic.py`
-
-Same shape as `HeuristicAI`, but the fixed `0.75` discount is replaced
-by a 5-feature linear model:
-
-```
-discount = clamp(BIAS + Σ W_i * feature_i, 0, 1)
-```
-
-Features: `progress`, `my_cash_ratio`, `avg_cash_ratio`, `top_cash_ratio`,
-`variance`. The constants (`BIAS = 0.70`, `W_PROGRESS = 0.25`, …) were
-hand-tuned. Adds two extra knobs that gate loans entirely
-(`LOAN_CASH_RATIO_MAX`, `LOAN_DISCOUNT_MIN`).
-
-### 5. `HypergeometricAI` — `megagem/players/hypergeometric.py`
-
-Standalone (does not subclass `HeuristicAI`). Replaces the
-"uniform-share over hidden cards" estimator with a true **hypergeometric
-distribution** per color. Critical for chart E because Jensen's
-inequality bites hard:
-
-> `E[chart_value(X)] ≠ chart_value(E[X])` when `chart_value` is
-> non-monotonic.
-
-The vanilla heuristic computes `chart_value(E[X])`; this AI computes
-`E[chart_value(X)]`, which is the right thing.
-
-Bid sizing is still a fixed `DISCOUNT = 0.75`, so on charts where the
-estimator change isn't decisive, the AI is roughly even with
-`HeuristicAI`.
-
-### 6. `HyperAdaptiveAI(AdaptiveHeuristicAI)` — `megagem/players/hyper_adaptive.py`
-
-Combines the best of (4) and (5): hypergeometric value estimation under
-the linear adaptive discount. Also overrides `_reserve_for_future` to
-use the hyper-aware average treasure value.
-
-This was the strongest hand-crafted AI before the GA showed up.
-
-### 7. `HyperAdaptiveSplitAI(HyperAdaptiveAI)` — `megagem/players/hyper_adaptive_split.py`
+### 4. `HyperAdaptiveSplitAI(HeuristicAI)` — `megagem/players/hyper_adaptive_split.py`
 
 The pre-Evo2 champion. The single shared discount was forced to be the
 right answer for treasures, invests, *and* loans simultaneously, which
@@ -706,7 +661,7 @@ python -m unittest tests.test_evo3 -v
 python -m unittest tests.test_heuristic.HyperAdaptiveSplitBidTest -v
 
 # A single test.
-python -m unittest tests.test_heuristic.HyperAdaptiveSplitBidTest.test_default_treasure_bid_matches_old_hyper_adaptive
+python -m unittest tests.test_heuristic.HyperAdaptiveSplitBidTest.test_invest_uses_invest_model_not_treasure_model
 ```
 
 `tests/test_heuristic.py` is intentionally large because the AIs share
@@ -775,13 +730,13 @@ re-eval trick as `evolve_evo3`, with four opponent modes:
 
 | `--opponent` | Opponents | Notes |
 |--------------|-----------|-------|
-| `vs_all` *(default)* | Pools across all 6 prior bots (Random, Heuristic, Adaptive, Hyper, HyperAdapt, EvolvedSplit) | **6× longer per generation**; avoids overfit to any single baseline. EvolvedSplit is loaded from `saved_best_weights/`; the rest use class defaults. |
+| `vs_all` *(default)* | Pools across all 3 prior bots (Random, Heuristic, EvolvedSplit) | **3× longer per generation**; avoids overfit to any single baseline. EvolvedSplit is loaded from `saved_best_weights/`; the rest use class defaults. |
 | `self_play` | Sampled from the current Evo2 population | Pure co-evolution. |
 | `old_evo` | Fixed `HyperAdaptiveSplitAI` from `saved_best_weights/` | Train specifically to beat the pre-Evo2 champion. |
 | `old_evo2` | Fixed `Evo2AI` from `saved_best_weights/` | Strict refinement over the previous best Evo2. |
 
 ```bash
-# Default: averaged fitness against all 6 prior bots.
+# Default: averaged fitness against all 3 prior bots.
 python -m scripts.evolve_evo2
 
 # Head-to-head vs the HyperAdaptiveSplit champion.
@@ -808,12 +763,12 @@ re-eval trick as evolve_evo2, but with three opponent modes:
 
 | `--opponent` | Opponents | Notes |
 |--------------|-----------|-------|
-| `vs_all` *(default)* | Pools across all 6 prior bots (Random, Heuristic, Adaptive, Hyper, HyperAdapt, Evo2) | **6× longer per generation**, but avoids overfit to any single baseline. Evo2 is loaded from `saved_best_weights/` if present, else class defaults. |
+| `vs_all` *(default)* | Pools across all 3 prior bots (Random, Heuristic, Evo2) | **3× longer per generation**, but avoids overfit to any single baseline. Evo2 is loaded from `saved_best_weights/` if present, else class defaults. |
 | `vs_evo2` | Fixed `Evo2AI` from `saved_best_weights/` | Strict refinement over the immediate predecessor. |
 | `self_play` | Sampled from the current Evo3 population | Pure co-evolution. |
 
 ```bash
-# Default: averaged fitness against all 6 prior bots.
+# Default: averaged fitness against all 3 prior bots.
 python -m scripts.evolve_evo3
 
 # Head-to-head vs the previous champion.
@@ -868,9 +823,9 @@ col]` is the win rate of one `row` AI seated against three copies of
 seed range is set well above every GA's training seeds (default 200..)
 so the evolved-AI rows reflect generalisation, not memorisation.
 
-The current matrix covers **8 AIs**: `Random`, `Heuristic`, `Adaptive`,
-`Hyper`, `HyperAdapt`, `EvolvedSplit` (GA-tuned `HyperAdaptiveSplitAI`),
-`Evo2`, `Evo3`. Each cell is 1000 games (5 charts × 200 seeds).
+The current matrix covers **5 AIs**: `Random`, `Heuristic`,
+`EvolvedSplit` (GA-tuned `HyperAdaptiveSplitAI`), `Evo2`, `Evo3`. Each
+cell is 1000 games (5 charts × 200 seeds).
 
 ### Run it
 
@@ -990,11 +945,6 @@ in `megagem/players/`.
   batch than generation N-1. The final "winner" is chosen by a
   held-out re-eval of the top-5 elites *after* the main loop, not by
   picking the best per-generation score.
-* **HyperAdapt loses to plain Heuristic in the heatmap** — yes, this
-  surprised us too. A single shared discount head can't simultaneously
-  be the right answer for treasures, invests, and loans, so smarter
-  value estimation alone doesn't help. That's why
-  `HyperAdaptiveSplitAI` (and later Evo2 / Evo3) exist.
 * **`python megagem/__main__.py` doesn't work** — use
   `python -m megagem` so the package imports resolve correctly.
 * **Reveal phase is mandatory** — the auction winner *must* reveal a
