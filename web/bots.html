@@ -895,8 +895,8 @@
                             <div class="wa-insight">
                                 The treasure head bids more conservatively than Evo2 (<code>w_ev = 0.29</code> vs 0.33) but
                                 compensates with <code>w_avg_opp = +0.20</code> — it ramps up when opponents are flush.
-                                The new <code>w_std = -0.15</code> is a significant change: the retrained Evo3 actively
-                                discounts uncertain cards rather than ignoring variance. The opponent-delta weights both
+                                <code>w_std = -0.15</code> actively discounts uncertain cards, avoiding overpaying when
+                                the final display value is hard to predict. The opponent-delta weights both
                                 pull bids down (<code>w_mean_delta = -0.03</code>, <code>w_std_delta = -0.09</code>) —
                                 evolution learned that on treasures, it's better to step back when opponents are
                                 aggressive or unpredictable rather than escalate.
@@ -940,18 +940,17 @@
                                     <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">-0.04</td><td class="wt-meaning">Slight avoidance vs a rich leader</td></tr>
                                     <tr><td class="wt-name">w_amount</td><td class="wt-value positive">+0.34</td><td class="wt-meaning"><strong>Strongest weight.</strong> Strongly prefers bigger loans — if borrowing, go big</td></tr>
                                     <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">-0.09</td><td class="wt-meaning">Avoids loans when opponents overbid — no longer borrows to escalate</td></tr>
-                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value positive">+0.18</td><td class="wt-meaning"><strong>Key shift.</strong> Takes loans when opponent behaviour is volatile — borrows to exploit chaos</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value positive">+0.18</td><td class="wt-meaning">Takes loans when opponent behaviour is volatile — borrows to exploit chaos</td></tr>
                                 </tbody>
                             </table>
                             <div class="wa-insight">
-                                The retrained loan head shows a fascinating strategic reversal. The old Evo3
-                                borrowed against consistent overbidders (<code>w_mean_delta = +0.16</code>); the
-                                new one does the opposite — <code>w_mean_delta = -0.09</code> avoids loans when
-                                opponents overbid, while <code>w_std_delta = +0.18</code> takes loans when opponents
-                                are <em>volatile</em>. The new strategy: exploit unpredictable opponents by borrowing
+                                The loan head's opponent-awareness shows a nuanced strategy.
+                                <code>w_mean_delta = -0.09</code> avoids loans when opponents consistently overbid,
+                                while <code>w_std_delta = +0.18</code> takes loans when opponents
+                                are <em>volatile</em>. The strategy: exploit unpredictable opponents by borrowing
                                 to fund opportunistic bids when they under-bid, rather than escalating against
                                 consistent aggressors. Combined with <code>w_avg_opp = +0.17</code>, the loan head
-                                now says "borrow when opponents are rich and erratic" — a subtler read of the table.
+                                says "borrow when opponents are rich and erratic" — a subtle read of the table.
                             </div>
                         </div>
                     </div>
