@@ -451,6 +451,8 @@ button:disabled {
 /* Small mission icons in player sub-line */
 .mission-icon-sm {
     display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: 14px;
     height: 14px;
     margin-left: 2px;

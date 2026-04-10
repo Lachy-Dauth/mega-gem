@@ -47,9 +47,9 @@ const el = (tag, cls, text) => {
 
 // Mission category SVG icons (use currentColor so CSS controls hue)
 const MISSION_ICONS = {
-    pendant: `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2Q10 0 13 2"/><polygon points="10,18 4,8 8,5 12,5 16,8"/><line x1="4" y1="8" x2="16" y2="8"/><line x1="8" y1="5" x2="10" y2="18"/><line x1="12" y1="5" x2="10" y2="18"/></svg>`,
-    crown: `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15L3 7L7 10L10 4L13 10L17 7L17 15Z"/><line x1="3" y1="17" x2="17" y2="17"/></svg>`,
-    shield: `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 18Q4 14 3 8L3 3L10 5L17 3L17 8Q16 14 10 18Z"/><path d="M10 5L10 14" opacity="0.5"/></svg>`,
+    pendant: `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7 2Q10 0 13 2"/><polygon points="10,18 4,8 8,5 12,5 16,8"/><line x1="4" y1="8" x2="16" y2="8"/><line x1="8" y1="5" x2="10" y2="18"/><line x1="12" y1="5" x2="10" y2="18"/></svg>`,
+    crown: `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 15L3 7L7 10L10 4L13 10L17 7L17 15Z"/><line x1="3" y1="17" x2="17" y2="17"/></svg>`,
+    shield: `<svg viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 18Q4 14 3 8L3 3L10 5L17 3L17 8Q16 14 10 18Z"/><path d="M10 5L10 14" opacity="0.5"/></svg>`,
 };
 
 function missionDescription(name) {
