@@ -809,15 +809,16 @@
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                 <div class="bot-header">
                     <h3>Evo3 AI</h3>
-                    <div class="bot-difficulty">Hardest</div>
+                    <div class="bot-difficulty">Very hard</div>
                 </div>
             </summary>
             <div class="bot-body">
                 <p>
-                    Evo3 is the <strong>current champion</strong>. It extends
-                    Evo2 with one key innovation: it watches what opponents bid
-                    and adjusts its own strategy in real time. Its 25 weights
-                    were tuned by evolution against all prior bots.
+                    Evo3 was the previous champion, and the first bot to watch
+                    opponent behaviour and adjust in real time. It extends Evo2
+                    with an opponent-pricing signal that measures how much the
+                    highest opponent bid exceeds what Evo3 would have bid. Its
+                    25 weights were tuned by evolution against all prior bots.
                 </p>
 
                 <div class="section-label">Opponent-pricing signal</div>
@@ -860,12 +861,13 @@
 
                 <div class="section-label">Why it exists</div>
                 <p>
-                    Evo3 is the strongest bot in the zoo. By reading opponent
-                    behaviour it can adapt mid-game — bidding more aggressively
-                    against passive opponents and pulling back against aggressive
-                    ones. It achieves a <strong>72% pooled win rate</strong>
-                    against all prior bot types (Random, Heuristic, and Evo2)
-                    and is the default opponent for quick play.
+                    Evo3 was the first bot to adapt mid-game by reading
+                    opponent behaviour — bidding more aggressively against
+                    passive opponents and pulling back against aggressive ones.
+                    It achieves a <strong>72% pooled win rate</strong> against
+                    Random, Heuristic, and Evo2, and remains a strong opponent
+                    when you want a challenge without the per-color bid-signal
+                    inference that Evo4 layers on top.
                 </p>
 
                 <details class="weight-analysis">
@@ -956,6 +958,231 @@
                                 to fund opportunistic bids when they under-bid, rather than escalating against
                                 consistent aggressors. Combined with <code>w_avg_opp = +0.17</code>, the loan head
                                 says "borrow when opponents are rich and erratic" — a subtle read of the table.
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </div>
+        </details>
+
+        <!-- Evo4 AI -->
+        <details class="bot-card">
+            <summary>
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                <div class="bot-header">
+                    <h3>Evo4 AI</h3>
+                    <div class="bot-difficulty">Hardest</div>
+                </div>
+            </summary>
+            <div class="bot-body">
+                <p>
+                    Evo4 is the <strong>current champion</strong>. It keeps
+                    everything Evo3 does — the direct-bid linear heads, the
+                    hypergeometric value estimates, the opponent-pricing
+                    deltas — and layers two new ideas on top of the treasure
+                    head: <strong>per-color bid-signal inference</strong> and
+                    an <strong>internal opponent-bid predictor</strong>. Its
+                    35 weights were tuned by evolution against Random,
+                    Heuristic, Evolved, Evo2, and Evo3.
+                </p>
+
+                <div class="section-label">Per-color bid signal</div>
+                <p>
+                    When opponents overbid on a treasure, Evo4 assumes they
+                    probably already hold gems of the colours that were on
+                    offer — if two players bid 8 on a treasure containing Blue
+                    and one bids 5, the overbidders are likely sitting on Blue
+                    gems in hand. Evo4 attributes the overbid (vs its own
+                    baseline) across the offered gems' colours and accumulates
+                    a persistent per-colour signal. When it later evaluates a
+                    treasure, each colour's chart-index expectation is nudged
+                    by <code>color_bias_influence × color_signal[colour]</code>
+                    before the value lookup. The shift is linearly
+                    interpolated between chart entries so small signals
+                    produce smooth gradients the GA can learn from.
+                </p>
+
+                <div class="section-label">Internal opponent-bid predictor</div>
+                <p>
+                    For every opponent seat, Evo4 runs a small internal
+                    Evo2-style treasure head <em>from that seat's
+                    point of view</em> — their coins become
+                    <code>my_coins</code>, everyone else (including Evo4)
+                    becomes the <code>avg_opp</code> / <code>top_opp</code>
+                    bucket. The predicted bids are aggregated into
+                    <code>opp_max</code> and <code>opp_avg</code> features
+                    that the treasure head can weight. <strong>The internal
+                    predictor's own weights are part of the evolvable genome</strong>,
+                    so the GA learns how to model opponents rather than
+                    inheriting a frozen Evo2 snapshot.
+                </p>
+
+                <div class="section-label">No feedback loop (inherited)</div>
+                <p>
+                    Like Evo3, Evo4 uses a baseline bid — the bid it
+                    <em>would</em> have made with the default
+                    <code>(0, 1)</code> delta inputs and a zero color shift —
+                    when computing the opponent delta. Both the opp-delta
+                    history and the per-colour signal share this single
+                    consistent baseline, so the first treasure round of the
+                    game produces a zero signal regardless of what the weights
+                    do.
+                </p>
+
+                <div class="section-label">Revealing gems</div>
+                <p>
+                    Same reveal logic as every other evolved bot — inherited
+                    from the Heuristic AI.
+                </p>
+
+                <div class="section-label">Why it exists</div>
+                <p>
+                    Evo4 is the first bot to extract private information from
+                    opponent <em>bid magnitudes</em>, not just bid timing. By
+                    inferring which colours opponents are hoarding and by
+                    modelling what they will bid next round, it gets a
+                    systematic edge over Evo3 on treasures without touching
+                    invest or loan bidding — those heads are structurally
+                    identical to Evo3's.
+                </p>
+
+                <details class="weight-analysis">
+                    <summary>
+                        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                        Learned weights (35 total)
+                    </summary>
+                    <div class="wa-body">
+                        <p>
+                            Same direct-bid formula as Evo3 on every head, plus two
+                            opponent-bid-prediction features on the treasure head
+                            (<code>w_opp_max</code>, <code>w_opp_avg</code>), a scalar
+                            <code>color_bias_influence</code> that controls how much the
+                            per-colour signal warps the treasure EV, and a nested 7-weight
+                            internal Evo2-style head used to predict each opponent's bid.
+                        </p>
+
+                        <!-- Treasure head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Treasure head (11 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+1.06</td><td class="wt-meaning">Highest treasure bias of any evo bot — aggressive baseline floor</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.35</td><td class="wt-meaning">Strongest "patience" weight yet — pulls back hard when many rounds remain, so late-game bids hit harder</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">+0.10</td><td class="wt-meaning">Modest coin sensitivity — mostly trusts its value estimate</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value positive">+0.17</td><td class="wt-meaning">Bids harder when opponents are cash-rich — slightly less reactive than Evo3 on this axis</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">+0.02</td><td class="wt-meaning">Near-zero — the rich leader is handled through the opp-predictor features instead</td></tr>
+                                    <tr><td class="wt-name">w_ev</td><td class="wt-value positive">+0.31</td><td class="wt-meaning"><strong>Core pricing logic.</strong> Bids ~31% of the (bias-adjusted) estimated treasure value</td></tr>
+                                    <tr><td class="wt-name">w_std</td><td class="wt-value negative">-0.11</td><td class="wt-meaning">Slightly pulls back on high-uncertainty treasures — similar to Evo3</td></tr>
+                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">-0.02</td><td class="wt-meaning">Small step-back when opponents overbid — avoids treasure bidding wars</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value near-zero">-0.09</td><td class="wt-meaning">Cautious around volatile opponents</td></tr>
+                                    <tr><td class="wt-name">w_opp_max</td><td class="wt-value near-zero">+0.02</td><td class="wt-meaning"><strong>New feature.</strong> Mildly escalates with the strongest predicted opponent bid — enough to contest but not chase</td></tr>
+                                    <tr><td class="wt-name">w_opp_avg</td><td class="wt-value near-zero">-0.01</td><td class="wt-meaning"><strong>New feature.</strong> Tiny negative — when the whole field is predicted to bid high, hold back slightly</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The treasure head is the centrepiece of Evo4's upgrade. The biggest single change from
+                                Evo3 is the much stronger <code>w_rounds = -0.35</code>: Evo4 learned to be even more
+                                patient early, banking coins for treasures it can price more accurately later when the
+                                per-colour signal has matured. The new <code>w_opp_max = +0.02</code> and
+                                <code>w_opp_avg = -0.01</code> are small in magnitude but differ in sign — escalate
+                                against the <em>strongest</em> predicted opponent, hold back against a uniformly rich
+                                field — a nuance Evo3 could not express.
+                            </div>
+                        </div>
+
+                        <!-- Invest head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Invest head (8 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+1.79</td><td class="wt-meaning">Very high baseline — still aggressively chases every investment</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value positive">+0.21</td><td class="wt-meaning">Invests more with more rounds left — maximise time to earn returns</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value negative">-0.11</td><td class="wt-meaning">Slightly <em>less</em> when coin-rich — saves coins for treasure fights</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value negative">-0.25</td><td class="wt-meaning">Pulls back when opponents are cash-rich — lets them spend first</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value positive">+0.30</td><td class="wt-meaning">But invests more when one opponent leads — concedes auctions, secures safe returns</td></tr>
+                                    <tr><td class="wt-name">w_amount</td><td class="wt-value positive">+0.25</td><td class="wt-meaning">Strong preference for larger investments — prioritises the high-return cards</td></tr>
+                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value positive">+0.16</td><td class="wt-meaning"><strong>Flipped from Evo3.</strong> Invests <em>more</em> when opponents overbid — doubles down on safe income when treasures are being contested</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value near-zero">+0.10</td><td class="wt-meaning">Modest positive — a bit more eager in volatile games</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The invest head inherits Evo3's "invest early, invest often" philosophy but
+                                flips <code>w_mean_delta</code> from negative to <code>+0.16</code>. The reasoning:
+                                when opponents consistently overbid on auctions, Evo4's treasure head steps back
+                                (<code>w_mean_delta = -0.02</code> on treasure) and reallocates those coins into
+                                investments. It's a unified "concede chaos, lock in returns" policy.
+                            </div>
+                        </div>
+
+                        <!-- Loan head -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Loan head (8 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value negative">-0.43</td><td class="wt-meaning">Avoids loans by default — net-negative cash flow</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value negative">-0.30</td><td class="wt-meaning">Even less willing early in the game</td></tr>
+                                    <tr><td class="wt-name">w_my_coins</td><td class="wt-value near-zero">+0.05</td><td class="wt-meaning">Small positive — slightly more willing to leverage when already rich</td></tr>
+                                    <tr><td class="wt-name">w_avg_opp</td><td class="wt-value near-zero">+0.07</td><td class="wt-meaning">Borrows a little more under competitive pressure</td></tr>
+                                    <tr><td class="wt-name">w_top_opp</td><td class="wt-value near-zero">+0.06</td><td class="wt-meaning">Small positive — a shift from Evo3, which avoided loans vs a rich leader</td></tr>
+                                    <tr><td class="wt-name">w_amount</td><td class="wt-value positive">+0.35</td><td class="wt-meaning"><strong>Strongest weight.</strong> Strongly prefers bigger loans — "go big or go home"</td></tr>
+                                    <tr><td class="wt-name">w_mean_delta</td><td class="wt-value near-zero">-0.05</td><td class="wt-meaning">Slightly avoids loans when opponents are overbidding</td></tr>
+                                    <tr><td class="wt-name">w_std_delta</td><td class="wt-value near-zero">+0.03</td><td class="wt-meaning">Mild positive — small gambler's instinct in chaotic games</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The loan head is the most conservative of the three, and the least changed from Evo3.
+                                The dominant <code>w_amount = +0.35</code> is preserved — if Evo4 borrows at all, it
+                                borrows big. The small positive <code>w_top_opp</code> is a subtle shift: Evo4 is
+                                slightly more willing than Evo3 to take loans against a single runaway leader, trading
+                                debt for late-game leverage.
+                            </div>
+                        </div>
+
+                        <!-- Color bias -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Color bias influence (1 weight)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">color_bias_influence</td><td class="wt-value near-zero">+0.02</td><td class="wt-meaning">Scales the per-colour signal into a chart-index shift — small but non-zero</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The GA kept the color-bias influence small (~+0.02) rather than zero. That's enough for
+                                several rounds of consistent overbidding to nudge one colour's chart index up by a
+                                visible fraction, shifting Evo4's treasure EV estimate toward whichever colours
+                                opponents appear to be sitting on — without swamping the value estimate on any single
+                                round.
+                            </div>
+                        </div>
+
+                        <!-- Internal predictor -->
+                        <div class="wa-head">
+                            <div class="wa-head-title">Internal opponent predictor (7 weights)</div>
+                            <table class="weight-table">
+                                <thead><tr><th>Weight</th><th>Value</th><th>Interpretation</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="wt-name">bias</td><td class="wt-value positive">+1.02</td><td class="wt-meaning">Assumes every opponent has a healthy baseline willingness to bid</td></tr>
+                                    <tr><td class="wt-name">w_rounds</td><td class="wt-value near-zero">+0.03</td><td class="wt-meaning">Near-zero — predicted opponents don't get more or less patient over time</td></tr>
+                                    <tr><td class="wt-name">w_my</td><td class="wt-value positive">+0.22</td><td class="wt-meaning">Modelled opponent bids more when they're cash-rich</td></tr>
+                                    <tr><td class="wt-name">w_avg</td><td class="wt-value positive">+0.42</td><td class="wt-meaning">Assumes opponents react strongly to the average wealth at the table</td></tr>
+                                    <tr><td class="wt-name">w_top</td><td class="wt-value positive">+0.94</td><td class="wt-meaning"><strong>Dominant weight.</strong> Assumes every opponent treats the richest player as the primary threat — a very aggressive model</td></tr>
+                                    <tr><td class="wt-name">w_ev</td><td class="wt-value near-zero">+0.01</td><td class="wt-meaning">Near-zero — the modelled opponent barely uses Evo4's own EV estimate, relying instead on coin signals</td></tr>
+                                    <tr><td class="wt-name">w_std</td><td class="wt-value positive">+0.15</td><td class="wt-meaning">Mild positive — modelled opponents are slightly <em>more</em> willing to bid on uncertain prizes</td></tr>
+                                </tbody>
+                            </table>
+                            <div class="wa-insight">
+                                The internal predictor is fascinating: evolution produced a model of opponents that is
+                                <em>very</em> different from Evo2's real defaults. The <code>w_top = +0.94</code> dwarfs
+                                every other weight — Evo4 assumes opponents obsess over the richest seat at the table,
+                                which makes the predicted <code>opp_max</code> track the leader's wealth closely. Pair
+                                that with the near-zero <code>w_ev = +0.01</code> and the predictor is effectively
+                                saying "opponents don't price treasures, they price each other's coin piles". Whether
+                                or not that reflects reality, it gives Evo4's outer treasure head a useful
+                                leader-tracking signal via the <code>opp_max</code> feature.
                             </div>
                         </div>
                     </div>

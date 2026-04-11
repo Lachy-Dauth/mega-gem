@@ -18,6 +18,7 @@ from megagem.engine import is_game_over, play_round, score_game, setup_game
 from megagem.players import (
     Evo2AI,
     Evo3AI,
+    Evo4AI,
     HeuristicAI,
     HyperAdaptiveSplitAI,
     RandomAI,
@@ -30,9 +31,21 @@ GAMES_PER_CHART = 40  # 200 games per cell (5 charts × 40 seeds)
 _WEIGHTS_DIR = Path("saved_best_weights")
 
 
-def _try_load(*filenames: str) -> list[float] | None:
-    for filename in filenames:
-        path = _WEIGHTS_DIR / filename
+def _candidate_weight_paths(profile_key: str, num_players: int = 4) -> list[Path]:
+    """Uniform lookup chain mirroring ``scripts.evolve.opponents.candidate_filenames``."""
+    tags = (
+        "vs_all", "vs_random", "vs_heuristic",
+        "vs_evo1", "vs_evo2", "vs_evo3", "vs_evo4",
+        "self",
+    )
+    return [
+        _WEIGHTS_DIR / f"best_weights_{profile_key}_{tag}_{num_players}p.json"
+        for tag in tags
+    ] + [_WEIGHTS_DIR / f"best_weights_{profile_key}_{num_players}p.json"]
+
+
+def _load_evo_weights(profile_key: str) -> list[float] | None:
+    for path in _candidate_weight_paths(profile_key):
         if path.exists():
             return json.loads(path.read_text())["weights"]
     return None
@@ -44,31 +57,29 @@ def make_factories() -> dict:
         "Heuristic": lambda name, seed: HeuristicAI(name, seed=seed),
     }
 
-    evolved = _try_load("best_weights_4p.json", "best_weights.json")
+    evolved = _load_evo_weights("evo1")
     if evolved is not None:
         factories["Evolved"] = lambda name, seed: HyperAdaptiveSplitAI.from_weights(
             name, evolved, seed=seed
         )
 
-    evo2 = _try_load(
-        "best_weights_evo2_vs_all_4p.json",
-        "best_weights_evo2_vs_old_4p.json",
-        "best_weights_evo2_self_4p.json",
-    )
+    evo2 = _load_evo_weights("evo2")
     if evo2 is not None:
         factories["Evo2"] = lambda name, seed: Evo2AI.from_weights(name, evo2, seed=seed)
     else:
         factories["Evo2"] = lambda name, seed: Evo2AI(name, seed=seed)
 
-    evo3 = _try_load(
-        "best_weights_evo3_vs_all_4p.json",
-        "best_weights_evo3_vs_evo2_4p.json",
-        "best_weights_evo3_self_4p.json",
-    )
+    evo3 = _load_evo_weights("evo3")
     if evo3 is not None:
         factories["Evo3"] = lambda name, seed: Evo3AI.from_weights(name, evo3, seed=seed)
     else:
         factories["Evo3"] = lambda name, seed: Evo3AI(name, seed=seed)
+
+    evo4 = _load_evo_weights("evo4")
+    if evo4 is not None:
+        factories["Evo4"] = lambda name, seed: Evo4AI.from_weights(name, evo4, seed=seed)
+    else:
+        factories["Evo4"] = lambda name, seed: Evo4AI(name, seed=seed)
 
     return factories
 

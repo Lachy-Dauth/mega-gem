@@ -1,0 +1,47 @@
+{
+  "fitness": 0.45125,
+  "generation": 2,
+  "weights": [
+    0.6429569758570528,
+    -0.44789450975389483,
+    0.027149464049764385,
+    0.2819686143057683,
+    0.19488797023840124,
+    -0.2660153082942127,
+    0.406891420631992,
+    -1.9738275906535756,
+    0.8595969011989678,
+    -0.6933940775992122,
+    0.9798677160315997,
+    -0.137918669633739,
+    -0.585998751944161,
+    1.6939722655402183,
+    -0.2063534020218451,
+    0.5190053832551399,
+    -0.8011977773861141,
+    1.2356448064664947
+  ],
+  "ga_config": {
+    "ai": "evo1",
+    "label": "HyperAdaptiveSplitAI",
+    "num_weights": 18,
+    "population": 24,
+    "generations": 5,
+    "games_per_chart": 40,
+    "num_players": 4,
+    "charts": "ABCDE",
+    "seed": 0,
+    "tournament_size": 3,
+    "elites": 2,
+    "mutation_rate": 0.2,
+    "mutation_sigma": 0.15,
+    "mutation_clip": 2.0,
+    "init_range": [
+      -1.0,
+      1.0
+    ],
+    "opponent_mode": "vs_all",
+    "fitness_mode": "vs_all_rotating_seeds",
+    "workers": 10
+  }
+}

@@ -21,6 +21,7 @@ from typing import Callable
 from megagem.players import (
     Evo2AI,
     Evo3AI,
+    Evo4AI,
     HeuristicAI,
     HyperAdaptiveSplitAI,
     Player,
@@ -35,9 +36,27 @@ _WEIGHTS_DIR = Path(__file__).resolve().parent.parent / "research" / "saved_best
 AIFactory = Callable[..., Player]
 
 
-def _load_weights(candidates: list[str]) -> list[float] | None:
-    for name in candidates:
-        path = _WEIGHTS_DIR / name
+def _candidate_weight_paths(profile_key: str, num_players: int) -> list[Path]:
+    """Uniform lookup chain for every evo profile.
+
+    Mirrors :func:`scripts.evolve.opponents.candidate_filenames` and
+    :func:`megagem.__main__._candidate_weight_paths` so the server, CLI,
+    and GA tuner all agree on which files to search and in what order.
+    """
+    tags = (
+        "vs_all", "vs_random", "vs_heuristic",
+        "vs_evo1", "vs_evo2", "vs_evo3", "vs_evo4",
+        "self",
+    )
+    return [
+        _WEIGHTS_DIR / f"best_weights_{profile_key}_{tag}_{num_players}p.json"
+        for tag in tags
+    ] + [_WEIGHTS_DIR / f"best_weights_{profile_key}_{num_players}p.json"]
+
+
+def _load_evo_weights(profile_key: str, num_players: int) -> list[float] | None:
+    """Return the first matching weights file's vector, or None if nothing exists."""
+    for path in _candidate_weight_paths(profile_key, num_players):
         if path.exists():
             data = json.loads(path.read_text())
             return data["weights"]
@@ -45,10 +64,7 @@ def _load_weights(candidates: list[str]) -> list[float] | None:
 
 
 def _evolved_factory(name: str, *, seed: int, num_players: int) -> Player:
-    weights = _load_weights([
-        f"best_weights_{num_players}p.json",
-        "best_weights.json",
-    ])
+    weights = _load_evo_weights("evo1", num_players)
     if weights is None:
         # No pre-Evo2 GA weights available — fall back to the
         # hand-tuned defaults so the seat still has a plausible bot.
@@ -57,30 +73,24 @@ def _evolved_factory(name: str, *, seed: int, num_players: int) -> Player:
 
 
 def _evo2_factory(name: str, *, seed: int, num_players: int) -> Player:
-    weights = _load_weights([
-        f"best_weights_evo2_vs_all_{num_players}p.json",
-        f"best_weights_evo2_vs_old_evo2_{num_players}p.json",
-        f"best_weights_evo2_vs_old_{num_players}p.json",
-        f"best_weights_evo2_self_{num_players}p.json",
-        f"best_weights_evo2_{num_players}p.json",
-        "best_weights_evo2.json",
-    ])
+    weights = _load_evo_weights("evo2", num_players)
     if weights is None:
         return Evo2AI(name, seed=seed)
     return Evo2AI.from_weights(name, weights, seed=seed)
 
 
 def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
-    weights = _load_weights([
-        f"best_weights_evo3_vs_all_{num_players}p.json",
-        f"best_weights_evo3_vs_evo2_{num_players}p.json",
-        f"best_weights_evo3_self_{num_players}p.json",
-        f"best_weights_evo3_{num_players}p.json",
-        "best_weights_evo3.json",
-    ])
+    weights = _load_evo_weights("evo3", num_players)
     if weights is None:
         return Evo3AI(name, seed=seed)
     return Evo3AI.from_weights(name, weights, seed=seed)
+
+
+def _evo4_factory(name: str, *, seed: int, num_players: int) -> Player:
+    weights = _load_evo_weights("evo4", num_players)
+    if weights is None:
+        return Evo4AI(name, seed=seed)
+    return Evo4AI.from_weights(name, weights, seed=seed)
 
 
 AI_FACTORIES: dict[str, AIFactory] = {
@@ -89,6 +99,7 @@ AI_FACTORIES: dict[str, AIFactory] = {
     "evolved":     _evolved_factory,
     "evo2":        _evo2_factory,
     "evo3":        _evo3_factory,
+    "evo4":        _evo4_factory,
 }
 
 

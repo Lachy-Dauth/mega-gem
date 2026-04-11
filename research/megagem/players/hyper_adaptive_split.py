@@ -156,6 +156,24 @@ class HyperAdaptiveSplitAI(HeuristicAI):
         l = _BidModel(*weights[12:18])
         return cls(name, treasure=t, invest=i, loan=l, seed=seed)
 
+    @classmethod
+    def flatten_defaults(cls) -> list[float]:
+        """Return the class-level ``DEFAULT_*`` constants as a flat 18-vector.
+
+        The inverse of :meth:`from_weights`: feeding this result back
+        through ``from_weights`` reconstructs the class-default AI. The
+        unified GA tuner uses this as its fallback for individual #0
+        when no saved weights file exists yet.
+        """
+        t = cls.DEFAULT_TREASURE
+        i = cls.DEFAULT_INVEST
+        l = cls.DEFAULT_LOAN
+        return [
+            t.bias, t.w_progress, t.w_my_cash, t.w_avg_cash, t.w_top_cash, t.w_variance,
+            i.bias, i.w_progress, i.w_my_cash, i.w_avg_cash, i.w_top_cash, i.w_variance,
+            l.bias, l.w_progress, l.w_my_cash, l.w_avg_cash, l.w_top_cash, l.w_variance,
+        ]
+
     def _reserve_for_future(
         self, public_state: "GameState", my_state: "PlayerState"
     ) -> int:

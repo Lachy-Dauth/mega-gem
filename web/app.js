@@ -750,6 +750,7 @@ const AI_KIND_LABELS = {
     evolved: "EvolvedSplit",
     evo2: "Evo2",
     evo3: "Evo3",
+    evo4: "Evo4",
 };
 
 function aiLabel(kind) {

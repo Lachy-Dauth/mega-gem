@@ -45,10 +45,14 @@ python -m megagem --ai evolved --debug                          # opponent AI ra
 python -m megagem --ai evo3                                     # play vs the current champion
 
 # GA tuners + heatmap (need matplotlib)
-python -m scripts.evolve_hyper_adaptive                         # tunes HyperAdaptiveSplitAI vs 3× HeuristicAI
-python -m scripts.evolve_evo2                                   # tunes Evo2AI (vs_all = avg vs all 6 prior bots)
-python -m scripts.evolve_evo2 --opponent self_play              # tunes Evo2AI via self-play
-python -m scripts.evolve_evo3                                   # tunes Evo3AI (vs_all = avg vs all 6 prior bots)
+# One unified entry point for all four evolvable bots — `evo1` is the
+# HyperAdaptiveSplitAI; pick a profile via --ai and an opponent via
+# --opponent. Defaults: --opponent vs_all (5-way pooled fitness).
+python -m scripts.evolve --ai evo1 --opponent vs_heuristic      # tunes HyperAdaptiveSplitAI vs 3× HeuristicAI
+python -m scripts.evolve --ai evo2                              # tunes Evo2AI vs_all (Heuristic + evo1/3/4)
+python -m scripts.evolve --ai evo2 --opponent self_play         # tunes Evo2AI via self-play
+python -m scripts.evolve --ai evo3                              # tunes Evo3AI vs_all
+python -m scripts.evolve --ai evo4 --opponent vs_evo3           # train evo4 against frozen evo3
 python -m scripts.heatmap_pairwise                              # requires saved_best_weights/*.json
 
 ```
@@ -69,22 +73,22 @@ does not care about CWD.
 
 ### Weights workflow
 
-GA scripts write their outputs to **`artifacts/`** (gitignored). The CLI, heatmap, and opponent-lookup chains (`old_evo`, `old_evo2`, `vs_evo2`) read *only* from **`saved_best_weights/`** (checked in). Promoting a fresh winner is an explicit copy:
+The unified `scripts.evolve` writes its outputs to **`artifacts/`** (gitignored). The CLI, heatmap, and the opponent-lookup chains used by the four GA profiles read *only* from **`saved_best_weights/`** (checked in). Promoting a fresh winner is an explicit copy:
 
 ```bash
-python -m scripts.evolve_evo3
+python -m scripts.evolve --ai evo3
 cp artifacts/best_weights_evo3_vs_all_4p.json saved_best_weights/
 ```
 
 The `saved_best_weights/` folder currently holds:
-- `best_weights_4p.json` — HyperAdaptiveSplitAI (89% vs 3× HeuristicAI)
-- `best_weights_evo2_vs_old_4p.json` — Evo2AI trained vs HyperAdaptiveSplitAI (69%) *(the `--opponent vs_all` retrain is in progress; promote the fresh file into `saved_best_weights/` when it lands)*
+- `best_weights_evo1_vs_heuristic_4p.json` — HyperAdaptiveSplitAI (89% vs 3× HeuristicAI)
+- `best_weights_evo2_vs_evo1_4p.json` — Evo2AI trained vs HyperAdaptiveSplitAI (69%) *(the `--opponent vs_all` retrain is in progress; promote the fresh file into `saved_best_weights/` when it lands)*
 - `best_weights_evo3_vs_all_4p.json` — Evo3AI trained against all 6 prior bots (70% pooled)
 
 ## Dependencies
 
 - Python engine, CLI, and tests: **stdlib only**.
-- `scripts/evolve_hyper_adaptive.py` and `scripts/heatmap_pairwise.py`: `pip install matplotlib` (forced to `Agg` backend).
+- `scripts/evolve/` and `scripts/heatmap_pairwise.py`: `pip install matplotlib` (forced to `Agg` backend).
 - `server/` multiplayer server: `fastapi`, `uvicorn[standard]`, `pydantic` (see `requirements.txt`).
 - `web/` browser client: zero dependencies, vanilla JS.
 
@@ -120,34 +124,32 @@ The repo has one game engine: `research/megagem/` (Python). The terminal CLI, te
 2. `HumanPlayer` — interactive console.
 3. `HeuristicAI` — fixed `0.75` bid discount; uniform-share display estimator. **This is the old GA's fitness opponent.**
 4. `HyperAdaptiveSplitAI(HeuristicAI)` — pre-Evo2 champion. Inherits reveal logic from `HeuristicAI`; overrides bidding with three independent `_BidModel` heads (`treasure`, `invest`, `loan`) over hypergeometric value estimates and a 5-feature linear discount. 18 tunable constants total = 3 × (1 bias + 5 weights). Construct via class defaults, explicit `_BidModel`s, or `HyperAdaptiveSplitAI.from_weights(name, [18 floats])`. The GA produces individuals with the flat-vector form.
-5. `Evo2AI` (`megagem/players/evo2.py`) — clean-slate evolved AI. Drops `_reserve_for_future`, replaces the `auctions_left/25` progress proxy with an exact closed-form `_expected_rounds_remaining` (multivariate hypergeometric over the auction-deck multiset), drops the `cash_ratio` features in favour of raw integer `my_coins / avg_opp_coins / top_opp_coins`, and gives the treasure head two new per-card features — `ev` and `std` of the prize value — derived from the same hypergeometric distribution. Treasure EV also adds a `_mission_probability_delta` term: a per-mission `(P(I win | I take the gems) − P(I win | likely opponent does)) × mission.coins`, on top of the existing hard/soft mission bonuses. **Heads output the bid in coins directly** (not a discount fraction multiplied by EV/amount): `bid = bias + Σ wᵢ·featureᵢ`, clamped to `[0, cap]` once at `choose_bid`. This frees the GA from the implicit "scale by EV" coupling the discount form baked in. 19 weights (treasure 7 + invest 6 + loan 6); tuned by `scripts/evolve_evo2.py`.
-6. `Evo3AI` (`megagem/players/evo3.py`) — **current champion.** Adds an opponent-pricing signal on top of the Evo2 feature set. After every round the engine calls an optional `observe_round(public_state, my_idx, result)` hook on each player; Evo3 uses it to log `(category, max_opp_bid − baseline)` per auction. Every head reads two new features — a 4×-weighted running `mean_delta` and `std_delta` over the most recent auctions in the same category (treasure/invest/loan) — defaulting to `(0, 1)` before any history exists. **Critical detail:** `baseline` is the bid Evo3 *would* have made with the default `(0, 1)` deltas, not its actual bid. Using the actual bid creates a feedback loop where the signal depends on Evo3's own learned response; caching the default-delta bid on `self._last_default_bid` in `choose_bid` and reading it back in `observe_round` breaks that. 25 weights total (treasure 9 + invest 8 + loan 8); tuned by `scripts/evolve_evo3.py`.
+5. `Evo2AI` (`megagem/players/evo2.py`) — clean-slate evolved AI. Drops `_reserve_for_future`, replaces the `auctions_left/25` progress proxy with an exact closed-form `_expected_rounds_remaining` (multivariate hypergeometric over the auction-deck multiset), drops the `cash_ratio` features in favour of raw integer `my_coins / avg_opp_coins / top_opp_coins`, and gives the treasure head two new per-card features — `ev` and `std` of the prize value — derived from the same hypergeometric distribution. Treasure EV also adds a `_mission_probability_delta` term: a per-mission `(P(I win | I take the gems) − P(I win | likely opponent does)) × mission.coins`, on top of the existing hard/soft mission bonuses. **Heads output the bid in coins directly** (not a discount fraction multiplied by EV/amount): `bid = bias + Σ wᵢ·featureᵢ`, clamped to `[0, cap]` once at `choose_bid`. This frees the GA from the implicit "scale by EV" coupling the discount form baked in. 19 weights (treasure 7 + invest 6 + loan 6); tuned by `python -m scripts.evolve --ai evo2`.
+6. `Evo3AI` (`megagem/players/evo3.py`) — **current champion.** Adds an opponent-pricing signal on top of the Evo2 feature set. After every round the engine calls an optional `observe_round(public_state, my_idx, result)` hook on each player; Evo3 uses it to log `(category, max_opp_bid − baseline)` per auction. Every head reads two new features — a 4×-weighted running `mean_delta` and `std_delta` over the most recent auctions in the same category (treasure/invest/loan) — defaulting to `(0, 1)` before any history exists. **Critical detail:** `baseline` is the bid Evo3 *would* have made with the default `(0, 1)` deltas, not its actual bid. Using the actual bid creates a feedback loop where the signal depends on Evo3's own learned response; caching the default-delta bid on `self._last_default_bid` in `choose_bid` and reading it back in `observe_round` breaks that. 25 weights total (treasure 9 + invest 8 + loan 8); tuned by `python -m scripts.evolve --ai evo3`.
 
-### GA tuners
+### GA tuners — `scripts/evolve/`
 
-Three GA scripts, intentionally separate so newer tuners don't perturb older champions' weights:
+One unified package, four AI profiles, eight opponent modes. The CLI is `python -m scripts.evolve --ai {evo1,evo2,evo3,evo4} [--opponent MODE]`. Same loop, same fitness recipe, same output filename layout — only the per-AI weight count, mutation sigma, and lookup chain change between profiles.
 
-**`scripts/evolve_hyper_adaptive.py`** — tunes the 18 constants of `HyperAdaptiveSplitAI`.
+**Package layout** (under `research/scripts/evolve/`):
 
-- Fitness = win rate vs 3× `HeuristicAI`, averaged across charts A–E, on **fixed seed range `range(games_per_chart)`**. **Do not "fix" this by randomizing seeds** — determinism is load-bearing. Without it, two evaluations of the same genome return different scores and tournament selection chases noise instead of signal.
-- Elitism (`ELITES = 2`) means best-fitness is monotone non-decreasing per generation.
-- Fitness cache keyed on `tuple(round(w, 4) for w in weights)`.
-- Outputs `artifacts/best_weights_{N}p.json`. The CLI's `--ai evolved` loads it from `saved_best_weights/` after you copy it there.
+- `profiles.py` — `AIProfile` dataclass + the registry of four profiles. Each profile only carries its `ai_class`, `num_weights`, and `mutation_sigma`/`mutation_clip`. Everything else is uniform: `flatten_defaults` lives as a classmethod on the AI class itself (the single source of truth for the genome layout — it's the inverse of `from_weights`), and the lookup chain is shared across all profiles via `opponents.candidate_filenames(profile_key, num_players)`. **Individual #0 of every GA run is loaded from `saved_best_weights/`** via that shared chain — the same chain used for opponents in `vs_all` / `vs_evoK` modes. That means each fresh run starts from the current champion instead of a hardcoded constant; re-running `python -m scripts.evolve --ai evo3` iteratively refines whatever weights are already checked in. If no file exists yet, the GA falls back to `profile.flatten_defaults()` → `ai_class.flatten_defaults()` (the class's hardcoded `DEFAULT_*` constants).
+- `opponents.py` — the eight uniform opponent modes (`vs_all`, `vs_random`, `vs_heuristic`, `vs_evo1`, `vs_evo2`, `vs_evo3`, `vs_evo4`, `self_play`), the `build_mode_providers` dispatcher, and the shared `candidate_filenames` lookup chain used by every profile and mirrored in `megagem/__main__.py` + `server/ai_factory.py`. `vs_all` returns Heuristic + every evo profile *except* the challenger's own (Random is intentionally excluded — every tuned bot trivially beats it and those free wins wash out the signal from harder opponents); `vs_evoK` loads frozen weights from `saved_best_weights/` via the shared chain.
+- `ga.py` — the GA loop, fitness evaluation, progress bar, plot/json output. Fully generic over `AIProfile`. One code path for every profile/mode combination.
+- `__main__.py` — argparse CLI. `--ai` is required; `--opponent` defaults to `vs_all`. Output files land in `artifacts/best_weights_{key}_{tag}_{N}p.json` and `artifacts/evolve_{key}_history_{tag}_{N}p.png`.
 
-**`scripts/evolve_evo2.py`** — tunes the 19 constants of `Evo2AI`. Four opponent modes:
+**Profile sizes** (mutation sigma / clip in parens):
 
-- **`--opponent vs_all` (default).** Mirrors `evolve_evo3`: averages fitness across three providers — one per previous bot type (Random, Heuristic, EvolvedSplit). EvolvedSplit loads the GA-tuned `HyperAdaptiveSplitAI` weights from `saved_best_weights/`; the other two use class defaults. **3× longer per generation** than single-opponent modes. Writes `artifacts/best_weights_evo2_vs_all_{N}p.json`.
-- **`--opponent self_play`.** Each individual is evaluated by playing against three opponents drawn (with replacement) from the same generation's population — co-evolution rather than fixed-baseline tuning. Self-as-opponent is allowed at probability `1/pop_size`; not worth filtering out.
-- **`--opponent old_evo`.** Fixed `HyperAdaptiveSplitAI` opponents loaded from `saved_best_weights/`.
-- **`--opponent old_evo2`.** Fixed `Evo2AI` opponents loaded from `saved_best_weights/` (lookup chain matches `--ai evo2`).
-- **Rotating fitness seeds.** Each generation uses a fresh seed offset `(seed + gen + 1) * 9973` instead of a fixed seed range. Consequence: best-fitness is no longer monotone (a generation can land on a harder seed batch and the printed best dips). To recover a robust final winner, the script does a final held-out re-evaluation of the top-5 elites on the same provider distribution as training, and writes that winner to `artifacts/best_weights_evo2_{tag}_{N}p.json`.
+- `evo1` = HyperAdaptiveSplitAI, 18 weights (0.15 / 2.0 — tighter than the rest because the original hyper_adaptive GA was tuned for these magnitudes).
+- `evo2` = Evo2AI, 19 weights (0.05 / 5.0).
+- `evo3` = Evo3AI, 25 weights (0.05 / 5.0).
+- `evo4` = Evo4AI, 35 weights (0.05 / 5.0).
 
-**`scripts/evolve_evo3.py`** — tunes the 25 constants of `Evo3AI`. Three opponent modes:
+**Fitness strategy** (uniform across all profiles): rotating per-generation seeds `seed_offset = (seed + gen + 1) * 9973` so each generation samples a fresh slice of seed space, then a held-out re-eval of the top-5 elites against the same opponent distribution at the end. The held-out winner — not the per-gen best — is what gets written to disk. Per-generation best/mean dips are expected because the seeds shift; the held-out re-eval is the canonical "did it generalise?" check. There is no fitness cache (correct only under fixed seeds, which the unified loop never uses).
 
-- **`--opponent vs_all` (default).** For each individual, averages fitness across three providers — one per previous bot type (Random, Heuristic, Evo2). Every provider fills all 3 opponent seats with its class; the challenger's pooled win rate across all 3 × (5 charts × `games_per_chart`) games is the fitness. **3× longer per generation** than single-opponent modes; the point is to avoid overfitting to any one baseline. Evo2 opponents are loaded from `saved_best_weights/` if present (otherwise class defaults). Writes `artifacts/best_weights_evo3_vs_all_{N}p.json`.
-- **`--opponent vs_evo2`.** Fixed Evo2AI opponents loaded from `saved_best_weights/` (lookup chain mirrors `--ai evo2`).
-- **`--opponent self_play`.** Opponents sampled from the current Evo3 population each generation.
-- Uses the same rotating-seed trick as evolve_evo2, and the same final held-out re-evaluation of the top-5 elites on the same provider distribution.
+**vs_all is the default** for every profile. It pools win rate across Heuristic + every other evo class (loaded from `saved_best_weights/`, falling back to the AI class's `flatten_defaults()` classmethod). Random is intentionally excluded because every tuned bot beats it near-100%, so its slate would contribute near-perfect win rates that wash out the signal from the harder opponents. Each provider gets `len(CHARTS) × games_per_chart` games on a non-overlapping seed slice (offset by `prov_idx * 101`) so a challenger can't get lucky by hitting the same seed against every opponent.
+
+**Output filenames follow one uniform formula**: `best_weights_{profile_key}_{tag}_{num_players}p.json`, where `tag` is one of `vs_all`, `vs_random`, `vs_heuristic`, `vs_evo1..4`, `self`. The same formula drives the shared `candidate_filenames` lookup chain in `opponents.py`, which is mirrored byte-for-byte in `research/megagem/__main__.py` and `server/ai_factory.py`. There are no legacy filename fallbacks — the previously-checked-in `best_weights_4p.json` and `best_weights_evo2_vs_old_4p.json` were renamed to `best_weights_evo1_vs_heuristic_4p.json` and `best_weights_evo2_vs_evo1_4p.json` to fit the uniform scheme.
 
 ### Heatmap (`scripts/heatmap_pairwise.py`)
 
@@ -163,4 +165,5 @@ Three GA scripts, intentionally separate so newer tuners don't perturb older cha
 - **Always invoke as `python -m megagem`.** `python megagem/__main__.py` breaks relative imports.
 - **Reveal-a-gem is mandatory.** If `choose_gem_to_reveal` returns a gem not in hand, the engine substitutes a random one — that's a safety net for buggy AIs, not a feature to rely on.
 - **`LoanCard` bids exceed your coins.** `max_legal_bid` returns `coins + loan_amount` because the loan is conceptually paid first. Always route AI bids through `clamp_bid` rather than trusting raw output.
-- **`--ai evolved` / `--ai evo2` / `--ai evo3` need a weights file in `saved_best_weights/`.** `evolved` exits with a clear error if nothing is found; `evo2` and `evo3` fall back to class defaults with a stderr warning. Weights in `artifacts/` are ignored by the CLI — you must copy them over by hand.
+- **`--ai evolved` / `--ai evo2` / `--ai evo3` / `--ai evo4` need a weights file in `saved_best_weights/`.** `evolved` exits with a clear error if nothing is found; `evo2`/`evo3`/`evo4` fall back to class defaults with a stderr warning. Weights in `artifacts/` are ignored by the CLI — you must copy them over by hand.
+- **`scripts.evolve` and the CLI use different profile keys.** The GA package uses `evo1`/`evo2`/`evo3`/`evo4` (`--ai evo1` runs the HyperAdaptiveSplitAI tuner). The terminal CLI for *playing* still uses the original key `evolved` (`python -m megagem --ai evolved`). The class itself is unchanged — only the GA-side label is uniformised so file paths align with `evo2`/`evo3`/`evo4`.

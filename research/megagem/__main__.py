@@ -15,6 +15,7 @@ from .explain import ExplainingPlayer, render_round_rationales
 from .players import (
     Evo2AI,
     Evo3AI,
+    Evo4AI,
     HeuristicAI,
     HumanPlayer,
     HyperAdaptiveSplitAI,
@@ -35,118 +36,95 @@ AIFactory = Callable[..., Player]
 _WEIGHTS_DIR = Path("saved_best_weights")
 
 
-def _expand_weight_candidates(filenames: list[str]) -> list[Path]:
-    """Return each filename joined with the canonical weights dir."""
-    return [_WEIGHTS_DIR / f for f in filenames]
+def _candidate_weight_paths(profile_key: str, num_players: int) -> list[Path]:
+    """Uniform lookup chain for every evo profile.
+
+    Mirrors :func:`scripts.evolve.opponents.candidate_filenames` so the
+    CLI and the GA tuner see the same files in the same order. First
+    existing match wins.
+    """
+    tags = (
+        "vs_all", "vs_random", "vs_heuristic",
+        "vs_evo1", "vs_evo2", "vs_evo3", "vs_evo4",
+        "self",
+    )
+    return [
+        _WEIGHTS_DIR / f"best_weights_{profile_key}_{tag}_{num_players}p.json"
+        for tag in tags
+    ] + [_WEIGHTS_DIR / f"best_weights_{profile_key}_{num_players}p.json"]
+
+
+def _load_evo_weights(profile_key: str, num_players: int) -> list[float] | None:
+    """Return the first matching weights file's vector, or None if nothing exists."""
+    for path in _candidate_weight_paths(profile_key, num_players):
+        if path.exists():
+            data = json.loads(path.read_text())
+            return data["weights"]
+    return None
 
 
 def _evolved_factory(name: str, *, seed: int, num_players: int) -> Player:
     """Build a HyperAdaptiveSplitAI with GA-evolved weights for this seat count.
 
-    Looks for ``saved_best_weights/best_weights_{N}p.json`` first
-    (per-player-count files written by
-    ``scripts/evolve_hyper_adaptive.py`` and promoted by hand), then
-    falls back to the un-suffixed ``best_weights.json``. Raises if
-    nothing exists so the user gets a clear error instead of a silent
-    default.
+    Walks the uniform lookup chain (``best_weights_evo1_{tag}_{N}p.json``
+    for every tag). Raises if nothing exists so the user gets a clear
+    error instead of a silent default.
     """
-    candidates = _expand_weight_candidates([
-        f"best_weights_{num_players}p.json",
-        "best_weights.json",
-    ])
-    for path in candidates:
-        if path.exists():
-            data = json.loads(path.read_text())
-            return HyperAdaptiveSplitAI.from_weights(name, data["weights"], seed=seed)
-    raise SystemExit(
-        "No evolved weights found in saved_best_weights/. Run "
-        "`python -m scripts.evolve_hyper_adaptive` and copy "
-        "artifacts/best_weights_*.json into saved_best_weights/."
-    )
-
-
-def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
-    """Build an Evo3AI with GA-evolved weights for this seat count.
-
-    Lookup order (first match wins), all paths rooted in
-    ``saved_best_weights/``:
-
-    1. ``best_weights_evo3_vs_all_{N}p.json`` — trained with the
-       fitness averaged across all six previous bots. Top priority:
-       that is the training regime ``scripts/evolve_evo3.py`` uses by
-       default.
-    2. ``best_weights_evo3_vs_evo2_{N}p.json`` — trained against a
-       frozen Evo2 snapshot.
-    3. ``best_weights_evo3_self_{N}p.json`` — self-play.
-    4. ``best_weights_evo3_{N}p.json`` — legacy un-tagged.
-    5. ``best_weights_evo3.json`` — global fallback.
-
-    If none exist, falls back to ``Evo3AI``'s class defaults with a
-    one-time stderr warning so ``--ai evo3`` still works without
-    running the GA.
-    """
-    candidates = _expand_weight_candidates([
-        f"best_weights_evo3_vs_all_{num_players}p.json",
-        f"best_weights_evo3_vs_evo2_{num_players}p.json",
-        f"best_weights_evo3_self_{num_players}p.json",
-        f"best_weights_evo3_{num_players}p.json",
-        "best_weights_evo3.json",
-    ])
-    for path in candidates:
-        if path.exists():
-            data = json.loads(path.read_text())
-            return Evo3AI.from_weights(name, data["weights"], seed=seed)
-    print(
-        "warning: no evo3 weights in saved_best_weights/ — using class "
-        "defaults. Run `python -m scripts.evolve_evo3` and copy the "
-        "result into saved_best_weights/ for evolved weights.",
-        file=sys.stderr,
-    )
-    return Evo3AI(name, seed=seed)
+    weights = _load_evo_weights("evo1", num_players)
+    if weights is None:
+        raise SystemExit(
+            "No evo1 weights found in saved_best_weights/. Run "
+            "`python -m scripts.evolve --ai evo1` and copy "
+            "artifacts/best_weights_evo1_*.json into saved_best_weights/."
+        )
+    return HyperAdaptiveSplitAI.from_weights(name, weights, seed=seed)
 
 
 def _evo2_factory(name: str, *, seed: int, num_players: int) -> Player:
-    """Build an Evo2AI with GA-evolved weights for this seat count.
+    """Build an Evo2AI from the uniform evo2 lookup chain; class defaults if missing."""
+    weights = _load_evo_weights("evo2", num_players)
+    if weights is None:
+        print(
+            "warning: no evo2 weights in saved_best_weights/ — using class "
+            "defaults. Run `python -m scripts.evolve --ai evo2` and copy "
+            "the result into saved_best_weights/ for evolved weights.",
+            file=sys.stderr,
+        )
+        return Evo2AI(name, seed=seed)
+    return Evo2AI.from_weights(name, weights, seed=seed)
 
-    Lookup order (first match wins), all paths rooted in
-    ``saved_best_weights/``:
 
-    1. ``best_weights_evo2_vs_all_{N}p.json`` — trained with the
-       fitness averaged across all six previous bots. Top priority:
-       that is the training regime ``scripts/evolve_evo2.py`` uses by
-       default.
-    2. ``best_weights_evo2_vs_old_evo2_{N}p.json`` — trained against
-       an earlier Evo2AI snapshot.
-    3. ``best_weights_evo2_vs_old_{N}p.json`` — trained against the
-       pre-Evo2 champion (HyperAdaptiveSplitAI).
-    4. ``best_weights_evo2_self_{N}p.json`` — trained via self-play
-       within the Evo2 population.
-    5. ``best_weights_evo2_{N}p.json`` — legacy un-tagged path.
-    6. ``best_weights_evo2.json`` — global fallback.
+def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
+    """Build an Evo3AI from the uniform evo3 lookup chain; class defaults if missing."""
+    weights = _load_evo_weights("evo3", num_players)
+    if weights is None:
+        print(
+            "warning: no evo3 weights in saved_best_weights/ — using class "
+            "defaults. Run `python -m scripts.evolve --ai evo3` and copy "
+            "the result into saved_best_weights/ for evolved weights.",
+            file=sys.stderr,
+        )
+        return Evo3AI(name, seed=seed)
+    return Evo3AI.from_weights(name, weights, seed=seed)
 
-    If none exist, falls back to ``Evo2AI``'s class defaults with a
-    one-time stderr warning so first-time users can play immediately
-    without running the GA.
+
+def _evo4_factory(name: str, *, seed: int, num_players: int) -> Player:
+    """Build an Evo4AI from the uniform evo4 lookup chain; class defaults if missing.
+
+    Class defaults reduce to Evo3 behaviour (zero color-bias influence),
+    so the fallback is the same strength as ``--ai evo3`` with defaults
+    — no regression vs the previous AI.
     """
-    candidates = _expand_weight_candidates([
-        f"best_weights_evo2_vs_all_{num_players}p.json",
-        f"best_weights_evo2_vs_old_evo2_{num_players}p.json",
-        f"best_weights_evo2_vs_old_{num_players}p.json",
-        f"best_weights_evo2_self_{num_players}p.json",
-        f"best_weights_evo2_{num_players}p.json",
-        "best_weights_evo2.json",
-    ])
-    for path in candidates:
-        if path.exists():
-            data = json.loads(path.read_text())
-            return Evo2AI.from_weights(name, data["weights"], seed=seed)
-    print(
-        "warning: no evo2 weights in saved_best_weights/ — using class "
-        "defaults. Run `python -m scripts.evolve_evo2` and copy the "
-        "result into saved_best_weights/ for evolved weights.",
-        file=sys.stderr,
-    )
-    return Evo2AI(name, seed=seed)
+    weights = _load_evo_weights("evo4", num_players)
+    if weights is None:
+        print(
+            "warning: no evo4 weights in saved_best_weights/ — using class "
+            "defaults (equivalent to Evo3). Run `python -m scripts.evolve --ai evo4` "
+            "and copy the result into saved_best_weights/ for evolved weights.",
+            file=sys.stderr,
+        )
+        return Evo4AI(name, seed=seed)
+    return Evo4AI.from_weights(name, weights, seed=seed)
 
 
 AI_FACTORIES: dict[str, AIFactory] = {
@@ -155,6 +133,7 @@ AI_FACTORIES: dict[str, AIFactory] = {
     "evolved":    _evolved_factory,
     "evo2":       _evo2_factory,
     "evo3":       _evo3_factory,
+    "evo4":       _evo4_factory,
 }
 
 
@@ -207,8 +186,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ai", type=str, default="heuristic",
                         choices=list(AI_FACTORIES),
                         help=("Which AI to use for opponents (and --all-ai players). "
-                              "`evolved`, `evo2`, and `evo3` load GA-tuned weights "
-                              "from saved_best_weights/."))
+                              "`evolved`, `evo2`, `evo3`, and `evo4` load GA-tuned "
+                              "weights from saved_best_weights/."))
     args = parser.parse_args(argv)
 
     players = build_players(args.players, args.all_ai, args.debug, args.seed, args.ai)
