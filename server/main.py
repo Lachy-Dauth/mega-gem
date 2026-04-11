@@ -24,7 +24,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .ai_factory import AI_KINDS
-from .db import get_leaderboards, stats as db_stats
 from .protocol import serialize_state
 from .rooms import MAX_PLAYERS, MIN_PLAYERS, VALID_CHARTS, manager
 from .session import GameSession
@@ -89,7 +88,7 @@ class StartRequest(BaseModel):
 class QuickPlayRequest(BaseModel):
     host_name: str = Field(..., min_length=1, max_length=24)
     num_players: int = Field(4, ge=MIN_PLAYERS, le=MAX_PLAYERS)
-    ai_kind: str = Field("evo3")
+    ai_kind: str = Field("evo4")
     chart: str = Field("A", pattern="^[A-E]$")
     seed: Optional[int] = None
 
@@ -106,7 +105,7 @@ class RemoveSlotRequest(BaseModel):
 
 @app.get("/api/health")
 async def health() -> dict:
-    return {"status": "ok", "ai_kinds": list(AI_KINDS), "db": db_stats()}
+    return {"status": "ok", "ai_kinds": list(AI_KINDS)}
 
 
 @app.get("/api/config")
@@ -117,21 +116,6 @@ async def config() -> dict:
         "max_players": MAX_PLAYERS,
         "charts": list(VALID_CHARTS),
         "ai_kinds": list(AI_KINDS),
-    }
-
-
-@app.get("/api/leaderboard")
-async def leaderboard() -> dict:
-    """Bot win-rate leaderboards for 3p / 4p / 5p games.
-
-    Restricted to games with exactly one human seat (the
-    "vs one opponent" framing). Each entry is an AI kind with
-    games_played, wins, win_rate, and avg_score.
-    """
-    boards = get_leaderboards(player_counts=(3, 4, 5))
-    return {
-        "leaderboards": {str(k): v for k, v in boards.items()},
-        "stats": db_stats(),
     }
 
 

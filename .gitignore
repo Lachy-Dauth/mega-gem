@@ -95,8 +95,8 @@ desktop.ini
 *.log
 artifacts/
 
-# Multiplayer game record store (SQLite). Default lives at data/megagem.db;
-# point MEGAGEM_DB_PATH at a Railway volume in production.
+# Stray SQLite files — nothing in the repo uses these, but ignore any
+# that happen to get created locally by experiments.
 data/
 *.sqlite
 *.sqlite3
