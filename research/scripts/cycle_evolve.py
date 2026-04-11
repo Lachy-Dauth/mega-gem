@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -102,7 +103,7 @@ def parse_args(argv: list[str] | None) -> tuple[argparse.Namespace, list[str]]:
         default=40,
         help=(
             "Games per chart for the post-step vs_all win-rate measurement "
-            "of each AI. 40 × 5 charts × 5 providers ≈ 1000 games per AI "
+            "of each AI. 40 × 5 charts × 4 providers = 800 games per AI "
             "per step, per AI measured."
         ),
     )
@@ -111,9 +112,25 @@ def parse_args(argv: list[str] | None) -> tuple[argparse.Namespace, list[str]]:
         type=int,
         default=99_000_000,
         help=(
-            "Base seed offset for the post-step win-rate measurements. "
-            "Kept well above the GA's training + held-out seed range so "
-            "the graph reflects generalisation rather than memorisation."
+            "Seed offset used for every post-step win-rate measurement "
+            "(baseline + every cycle step). Every progression-graph "
+            "point replays the *exact same* fixture of games, so any "
+            "movement in the plot reflects a real change in AI strength "
+            "rather than sampling noise across different seed draws. "
+            "Kept well above the GA's training + held-out seed range "
+            "so the graph reflects generalisation rather than "
+            "memorisation."
+        ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=os.cpu_count() or 1,
+        help=(
+            "Number of threads used for fitness evaluation, both for "
+            "this script's post-step win-rate measurements and forwarded "
+            "to every scripts.evolve subprocess. Defaults to all CPU "
+            "cores. Pass --workers 1 for the fully-sequential path."
         ),
     )
     parser.add_argument(
@@ -130,6 +147,12 @@ def parse_args(argv: list[str] | None) -> tuple[argparse.Namespace, list[str]]:
         parser.error(
             "--ai is controlled by cycle_evolve and must not be passed explicitly"
         )
+    # --workers is owned by cycle_evolve and forwarded to every subprocess
+    # below, so a user-supplied passthrough --workers would collide.
+    if any(a == "--workers" or a.startswith("--workers=") for a in passthrough):
+        parser.error(
+            "--workers is controlled by cycle_evolve and must not be passed explicitly"
+        )
 
     return args, passthrough
 
@@ -140,6 +163,7 @@ def run_evolve_step(
     *,
     opponent: str,
     num_players: int,
+    workers: int,
 ) -> None:
     """Invoke ``python -m scripts.evolve`` for one AI. Raises on failure."""
     cmd = [
@@ -149,6 +173,7 @@ def run_evolve_step(
         "--ai", ai_key,
         "--opponent", opponent,
         "--num-players", str(num_players),
+        "--workers", str(workers),
         *passthrough,
     ]
     print(f"\n=== running: {' '.join(cmd)} ===", flush=True)
@@ -175,6 +200,7 @@ def evaluate_all_ais(
     num_players: int,
     games_per_chart: int,
     seed_offset: int,
+    workers: int,
 ) -> dict[str, float]:
     """Load each AI's current saved weights and measure vs_all win rate.
 
@@ -200,6 +226,7 @@ def evaluate_all_ais(
             providers=providers,
             games_per_chart=games_per_chart,
             seed_offset=seed_offset,
+            workers=workers,
         )
         results[key] = pooled
     return results
@@ -283,6 +310,7 @@ def main(argv: list[str] | None = None) -> int:
         num_players=args.num_players,
         games_per_chart=args.eval_games_per_chart,
         seed_offset=args.eval_seed_offset,
+        workers=args.workers,
     )
     print("baseline win rates:")
     print_winrates("baseline", baseline)
@@ -310,12 +338,13 @@ def main(argv: list[str] | None = None) -> int:
     # --- Main cycle loop
     t0 = time.perf_counter()
     for cycle_idx in range(1, args.cycles + 1):
-        for step_in_cycle, ai_key in enumerate(ORDER):
+        for ai_key in ORDER:
             run_evolve_step(
                 ai_key,
                 passthrough,
                 opponent=args.opponent,
                 num_players=args.num_players,
+                workers=args.workers,
             )
             promoted = promote_weights(
                 ai_key,
@@ -324,17 +353,23 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"promoted → {promoted}")
 
-            # Distinct seed slice per step so neighbouring measurements
-            # don't sample identical seeds. +13 per step is enough to
-            # decorrelate within the 5×games_per_chart×providers window.
-            step_offset = (
-                args.eval_seed_offset
-                + ((cycle_idx - 1) * len(ORDER) + step_in_cycle + 1) * 13
-            )
+            # Every progression-graph point — baseline and every
+            # cycle step — uses the *same* eval_seed_offset, so every
+            # measurement replays the identical fixture of games.
+            # Within that fixture every provider still gets its own
+            # disjoint slice of seed space (the +101 per-provider
+            # offset inside evaluate_against_multi) so challengers
+            # can't hit the same favourable seed against every
+            # opponent. With the fixture held constant across
+            # measurements, a win-rate change on the plot now
+            # reflects an actual strength delta in the AI whose
+            # weights were just promoted, instead of being tangled up
+            # with a fresh sampling draw.
             winrates = evaluate_all_ais(
                 num_players=args.num_players,
                 games_per_chart=args.eval_games_per_chart,
-                seed_offset=step_offset,
+                seed_offset=args.eval_seed_offset,
+                workers=args.workers,
             )
             step_label = f"{ai_key} c{cycle_idx}"
             print(f"after {step_label}:")

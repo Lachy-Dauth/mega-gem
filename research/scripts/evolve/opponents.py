@@ -247,9 +247,12 @@ def build_mode_providers(
     fixed-opponent modes too).
 
     Single-opponent modes return a one-element list. The ``vs_all``
-    mode returns one entry per opponent class — Random, Heuristic, and
-    every evo profile *other than* the challenger's own. The pooled
-    fitness then naturally averages across opponent types because every
+    mode returns one entry per opponent class — Heuristic plus every
+    evo profile *other than* the challenger's own. Random is
+    deliberately excluded: it's trivially beaten by every tuned bot
+    and the "free wins" it contributes dilute the signal from the
+    harder opponents that actually drive fitness. The pooled fitness
+    then naturally averages across opponent types because every
     provider gets the same number of games.
     """
     if mode_key not in MODE_KEYS:
@@ -288,9 +291,11 @@ def build_mode_providers(
             ),
         )]
 
-    # vs_all: Random + Heuristic + every evo profile EXCEPT the challenger.
+    # vs_all: Heuristic + every evo profile EXCEPT the challenger.
+    # Random is intentionally omitted — every tuned bot crushes it, so
+    # the extra slate contributes near-perfect win rates that wash out
+    # the signal from the opponents that actually matter.
     providers: list[tuple[str, OpponentProvider]] = [
-        ("Random",    _make_class_provider(RandomAI, num_players=num_players)),
         ("Heuristic", _make_class_provider(HeuristicAI, num_players=num_players)),
     ]
     for other_key in ("evo1", "evo2", "evo3", "evo4"):

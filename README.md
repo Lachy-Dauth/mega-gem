@@ -694,7 +694,7 @@ Every profile supports the same eight opponent modes:
 
 | `--opponent` | Opponents | Notes |
 |--------------|-----------|-------|
-| `vs_all` *(default)* | Pools fitness across `Random` + `Heuristic` + every other `evo*` profile (5 slates) | **5× longer per generation** vs single-opponent modes; avoids overfit to any single baseline. Evo opponents are loaded from `saved_best_weights/` if present, else fall back to class defaults. |
+| `vs_all` *(default)* | Pools fitness across `Heuristic` + every other `evo*` profile (4 slates) | **4× longer per generation** vs single-opponent modes; avoids overfit to any single baseline. Random is intentionally excluded — every tuned bot trivially beats it, so its near-100% win rate would wash out the signal from the harder opponents. Evo opponents are loaded from `saved_best_weights/` if present, else fall back to class defaults. |
 | `vs_random` | Fixed `RandomAI` opponents | Floor-of-the-zoo sanity check. |
 | `vs_heuristic` | Fixed `HeuristicAI` opponents | Mid-tier baseline. |
 | `vs_evo1` | Fixed `HyperAdaptiveSplitAI` from `saved_best_weights/` | Train against the pre-Evo2 champion. |
@@ -704,7 +704,7 @@ Every profile supports the same eight opponent modes:
 | `self_play` | Sampled from the current population each generation | Pure co-evolution. |
 
 `vs_all` for any profile excludes the challenger's own class
-automatically — `--ai evo3 --opponent vs_all` pools across Random,
+automatically — `--ai evo3 --opponent vs_all` pools across
 Heuristic, evo1, evo2, evo4.
 
 Outputs land in `artifacts/` (gitignored):

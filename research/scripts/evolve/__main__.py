@@ -62,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
         default="vs_all",
         help=(
             "Opponent mode. 'vs_all' (default) pools fitness across "
-            "Random + Heuristic + every other evo profile. "
+            "Heuristic + every other evo profile. "
             "'vs_random'/'vs_heuristic'/'vs_evo1'..'vs_evo4' fix the "
             "opponents to one class (loaded from saved_best_weights/ "
             "for the evo* targets). 'self_play' samples opponents from "
