@@ -2,8 +2,10 @@
 
 A pure-Python implementation of the **MegaGem** auction-and-collection card
 game, plus a small zoo of bidder AIs, a genetic-algorithm tuner that
-breeds the strongest one, and a FastAPI + WebSocket server that lets you
-play against the AI zoo or other humans from a browser.
+breeds the strongest one, a reinforcement-learning tuner (Evolution
+Strategies) that takes a different path to the same target, and a
+FastAPI + WebSocket server that lets you play against the AI zoo or
+other humans from a browser.
 
 The full game rules — turn structure, bid ties, mission categories, value
 charts — live in [`research/RULES.md`](research/RULES.md). This README
@@ -33,9 +35,10 @@ the benchmark plots.
 6. [The AI zoo](#the-ai-zoo)
 7. [Testing](#testing)
 8. [Evolving a better AI (the GA)](#evolving-a-better-ai-the-ga)
-9. [Benchmarking: pairwise heatmap](#benchmarking-pairwise-heatmap)
-10. [Adding your own AI](#adding-your-own-ai)
-11. [Common gotchas](#common-gotchas)
+9. [Reinforcement learning: Evolution Strategies for Evo4](#reinforcement-learning-evolution-strategies-for-evo4)
+10. [Benchmarking: pairwise heatmap](#benchmarking-pairwise-heatmap)
+11. [Adding your own AI](#adding-your-own-ai)
+12. [Common gotchas](#common-gotchas)
 
 ---
 
@@ -57,7 +60,7 @@ pip install matplotlib              # only if you want plots
 # 4. All Python commands live under research/ — switch there.
 cd research
 
-# 5. Run the test suite (should print "Ran 112 tests ... OK")
+# 5. Run the test suite (should print "Ran 132 tests ... OK")
 python -m unittest discover
 
 # 6. Play a game against three Heuristic AIs in the terminal
@@ -123,14 +126,20 @@ mega-gem/
     │   │   ├── profiles.py           # Per-AI registry (ai_class, num_weights, mutation σ)
     │   │   ├── opponents.py          # 8-mode opponent providers + shared lookup chain
     │   │   └── ga.py                 # GA loop, evaluation, plot/json output
+    │   ├── rl/                       # Reinforcement learning tuner — Evolution Strategies
+    │   │   ├── __main__.py           # `python -m scripts.rl --ai evo4`
+    │   │   ├── optim.py              # Stdlib Adam optimizer
+    │   │   ├── fitness.py            # Score-margin reward, rank transform, fork-pool eval
+    │   │   └── trainer.py            # run_es loop, plot, save/resume
     │   └── heatmap_pairwise.py        # All-vs-all win-rate matrix plot
-    ├── tests/                   # unittest suite (112 tests, stdlib only)
+    ├── tests/                   # unittest suite (132 tests, stdlib only)
     │   ├── test_cards.py
     │   ├── test_engine.py
     │   ├── test_heuristic.py    # Big file — covers every AI's helper math
     │   ├── test_evo2.py         # Evo2AI-specific helpers + head-to-head
     │   ├── test_evo3.py         # Evo3AI-specific helpers + head-to-head
     │   ├── test_evo4.py         # Evo4AI-specific helpers + head-to-head
+    │   ├── test_rl_evo4.py      # RL trainer unit + head-to-head integration
     │   ├── test_missions.py
     │   └── test_scoring.py
     ├── saved_best_weights/      # Checked-in GA outputs — the CLI reads these
@@ -584,7 +593,7 @@ new weights.
 ## Testing
 
 ```bash
-# Whole suite (currently 112 tests, ~1s).
+# Whole suite (currently 132 tests, ~2s).
 python -m unittest discover
 
 # Just the AI / heuristic tests (the biggest file).
@@ -598,6 +607,9 @@ python -m unittest tests.test_evo3 -v
 
 # Evo4-specific tests.
 python -m unittest tests.test_evo4 -v
+
+# RL trainer tests (rank transform, Adam, determinism, head-to-head integration).
+python -m unittest tests.test_rl_evo4 -v
 
 # A specific test class.
 python -m unittest tests.test_heuristic.HyperAdaptiveSplitBidTest -v
@@ -614,10 +626,15 @@ exercised. `tests/test_evo2.py`, `tests/test_evo3.py`, and
 `tests/test_evo4.py` cover the feature additions unique to those AIs
 (exact rounds-remaining estimator, mission-probability delta,
 opponent-delta ring buffer, baseline-bid caching, per-color signal
-updates, biased chart-index shift, opponent-bid prediction). The
+updates, biased chart-index shift, opponent-bid prediction).
+`tests/test_rl_evo4.py` covers the RL trainer in `scripts/rl/` —
+rank transform, Adam, epsilon sampling, theta clipping, RNG state
+serialization, a one-generation tiny-training integration, a
+back-to-back `DeterminismTest`, and a full 60-game head-to-head vs
+RandomAI that mirrors `test_evo4.Evo4HeadToHeadTest`. The
 head-to-head tests at the end of each file are smoke checks ("X
 should beat 3× RandomAI on chart Y at least 60% of the time"); they
-run ~60 games each and the whole suite finishes in about a second.
+run ~60 games each and the whole suite finishes in about two seconds.
 
 ---
 
@@ -771,6 +788,208 @@ verify the model actually generalised.
 
 ---
 
+## Reinforcement learning: Evolution Strategies for Evo4
+
+The GA is not the only way to tune Evo4's 35 weights. `scripts/rl/`
+provides a second, **algorithmically distinct** optimizer in the same
+ecological niche: **OpenAI-style Evolution Strategies** (Salimans et
+al. 2017), a parameter-space policy-gradient RL algorithm.
+
+```bash
+# Fast smoke: 5 gens × pop 8 against RandomAI.
+python -m scripts.rl --ai evo4 --opponent vs_random \
+    --generations 5 --population 8 --games-per-chart 2
+
+# Full training run with GA-comparable defaults.
+python -m scripts.rl --ai evo4 --opponent vs_all
+# → artifacts/best_weights_evo4_rl_vs_all_4p.json
+# → artifacts/rl_evo4_history_vs_all_4p.png
+# → artifacts/rl_evo4_state_vs_all_4p.json
+
+# Resume a half-finished run from the saved state file.
+python -m scripts.rl --ai evo4 --opponent vs_all \
+    --resume artifacts/rl_evo4_state_vs_all_4p.json
+```
+
+### Why ES, not REINFORCE / policy gradient / Q-learning?
+
+Three concrete reasons grounded in how the engine is shaped:
+
+1. **The engine is episodic.** `score_game` returns a single terminal
+   reward — there is no step reward and no bootstrapping target. That
+   collapses REINFORCE to Monte-Carlo anyway, which is exactly what
+   ES already is, just without the action-space gradient bookkeeping.
+2. **`Evo4.choose_bid` is deterministic.** Each head computes
+   `bid = bias + Σ wᵢ·featureᵢ`, clamped to `[0, cap]`. Adding action
+   noise for an action-space policy gradient would need a new
+   stochastic Evo4 subclass, a trajectory-buffer hook on `Player`
+   (none exists today), and log-prob math that breaks at the bid
+   cap. Not worth the surface area.
+3. **ES drops straight into the existing fork-pool worker pattern.**
+   The GA already uses `ProcessPoolExecutor` + `multiprocessing.get_context("fork")`
+   + `_WORKER_STATE` fan-out for deterministic parallel evaluation.
+   `scripts/rl/fitness.py` copies that pattern verbatim — results
+   accumulate into a pre-allocated `rewards[pert_idx][game_idx]`
+   2D list and are summed post-pool in loop order, so determinism
+   at any worker count is guaranteed by construction.
+
+### Algorithm
+
+One generation of `run_es`:
+
+1. Sample `N/2` noise vectors `εᵢ ~ 𝒩(0, I_35)` via stdlib `random.gauss`.
+2. Build `N` perturbed parameters `θ±ᵢ = θ ± σ·εᵢ`, component-wise
+   clipped to `[-5, 5]` (matches `profile.mutation_clip`). **Mirrored
+   sampling** halves gradient variance: if `θ+σε` rewards a step and
+   `θ−σε` punishes it, the common mean cancels.
+3. Evaluate each perturbed parameter across
+   `games_per_chart × 5 charts × len(providers)` games, pooled via
+   `build_mode_providers(mode_key, …)` — the same function the GA uses.
+   **Per-game reward is the normalized score margin**
+   `(mine − max_opp) / max(1, |mine| + |max_opp|) ∈ [-1, 1]`. Denser
+   than the GA's binary win signal, which is the whole point — rank
+   shaping on a `{0, 1}` vector collapses all ties.
+4. Stack the `N` mean rewards, apply **centered rank shaping** to
+   `[-0.5, +0.5]` (Salimans-style fitness shaping, invariant to
+   monotone reward transforms).
+5. Gradient estimate: `g[k] = (1 / (N·σ)) · Σᵢ Rᵢ · εᵢ[k]`, with the
+   mirrored sign of each `ε` baked in.
+6. **Adam** step on `θ` with state `(m, v, t)`. ES is *maximizing*,
+   so the step direction is `θ + α·m̂/(√v̂ + ε)` — opposite of the
+   loss-minimizing Adam most people see.
+7. Re-clip `θ` to `[-5, 5]`.
+8. Held-out θ-eval on a decorrelated seed range for the plotted
+   training curve.
+
+Per-generation seed rotation uses the **same formula as the GA**:
+`seed_offset = (seed + gen + 1) * 9973`. The held-out θ-eval uses
+`(seed + gen + 1000) * 9973` so the plotted curve is decorrelated
+from the seeds the gradient estimate saw.
+
+### How it differs from the GA
+
+| | `scripts.evolve` (GA) | `scripts.rl` (ES) |
+|---|---|---|
+| **Search method** | Population + tournament + crossover | Single point θ + gradient estimate |
+| **Survival rule** | Elite selection, top-K carried forward | Adam update on a rank-shaped gradient |
+| **Reward signal** | Binary win rate over ~200 games | Dense score margin, rank-shaped |
+| **Outer-loop math** | None (selection is the update) | Adam (`m`, `v`, bias correction) |
+| **Noise form** | Per-individual gaussian mutation | Mirrored ε-perturbations around θ |
+| **Fitness shaping** | None — raw win rate | Centered rank in `[-0.5, +0.5]` |
+| **Invariant to reward scale?** | No | Yes (rank-based) |
+| **Variance reduction** | None | Mirrored sampling + rank shaping |
+| **Target AI** | Any `AIProfile` (evo1..evo4) | Any `AIProfile`, defaults to evo4 |
+
+The ES loop is 20× simpler than the GA — no crossover, no selection
+pressure tuning, no elite archive, no self-play sampling knobs. In
+exchange it needs the Adam hyperparameters (`--lr`, `--sigma`) to
+be tuned. Defaults are `lr=0.03`, `sigma=0.10`, `theta_clip=5.0`,
+which are the Salimans-et-al values scaled for this problem's
+bounded-parameter regime.
+
+### CLI flags
+
+```bash
+python -m scripts.rl --ai {evo1,evo2,evo3,evo4} \
+    [--opponent MODE] \
+    [--population 48] [--generations 30] [--games-per-chart 10] \
+    [--sigma 0.10] [--lr 0.03] [--theta-clip 5.0] \
+    [--seed 0] [--num-players {3,4,5}] \
+    [--workers N] [--output-dir artifacts] [--resume PATH]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--ai` | `evo4` | Profile to tune. Same keys as `scripts.evolve`. |
+| `--opponent` | `vs_all` | Same eight modes as the GA. |
+| `--population` | `48` | **Must be even** (mirrored pairs). |
+| `--generations` | `30` | |
+| `--games-per-chart` | `10` | |
+| `--sigma` | `0.10` | ES noise std. **Not** the GA's mutation sigma — ES sigma is the gaussian policy's search radius. |
+| `--lr` | `0.03` | Adam learning rate for the outer parameter update. |
+| `--theta-clip` | `5.0` | Component-wise θ clip applied after every Adam step. |
+| `--workers` | `cpu_count()` | Results are deterministic at any worker count given the same `--seed`. `--workers 1` disables multiprocessing entirely. |
+| `--resume` | *(none)* | Resume from a state file produced by a previous run. θ, Adam moments, and RNG state are restored; `--generations` additional generations run on top. |
+| `--output-dir` | `artifacts` | |
+
+### Output filenames
+
+The RL tuner writes to `artifacts/` with an `rl_` infix so its output
+never collides with GA files:
+
+```
+artifacts/best_weights_evo4_rl_{tag}_{N}p.json   # weights, GA-compatible shape
+artifacts/rl_evo4_history_{tag}_{N}p.png          # training curve
+artifacts/rl_evo4_state_{tag}_{N}p.json           # Adam + RNG state, for --resume
+```
+
+where `{tag}` is the opponent mode (`vs_all`, `vs_random`, …) and
+`{N}` is the player count.
+
+### Promoting an RL winner
+
+The CLI / heatmap / GA-opponent lookup chain (`candidate_filenames`)
+does **not** match `rl_*` files — that's deliberate, RL outputs never
+silently compete with the GA champion. Promote an RL winner by
+copying the file with the infix stripped:
+
+```bash
+python -m scripts.rl --ai evo4 --opponent vs_all
+cp artifacts/best_weights_evo4_rl_vs_all_4p.json \
+   saved_best_weights/best_weights_evo4_vs_all_4p.json
+```
+
+The JSON layout is identical to GA output (`fitness`, `generation`,
+`weights`) except the per-run config is named `rl_config` instead of
+`ga_config`. The CLI and heatmap read only `weights`, so the renamed
+file is a drop-in replacement.
+
+### Seeding θ₀
+
+Like the GA, the RL trainer seeds `θ₀` from `saved_best_weights/`
+via the shared `candidate_filenames` chain. Re-running
+`python -m scripts.rl --ai evo4` iteratively refines the current
+champion. If no weights file exists, the trainer falls back to
+`Evo4AI.flatten_defaults()`.
+
+### Expected results
+
+A `python -m scripts.rl --ai evo4 --opponent vs_random` smoke run
+should lift the θ-eval win rate from ~0.80 (the evo4 champion's
+baseline) to ~1.00 within the first few generations. That's
+trivial — RandomAI is a floor-of-the-zoo opponent — but it's the
+sanity check that the full pipeline wired together.
+
+The open research question — whether ES on `--opponent vs_all`
+beats the GA-trained Evo4 on the pairwise heatmap — is exactly
+that: an **open question**. The ES loop is in place, the
+determinism tests pass, and the head-to-head integration test
+clears the 60%-vs-Random bar, but whether a fresh ES-tuned θ
+dethrones the GA champion depends on the hyperparameter sweep
+and the compute budget. The goal of this section is to document
+the trainer, not to guarantee a new champion.
+
+### What's next
+
+Obvious follow-ups that would fit on top of the current code:
+
+- **Natural gradient (NES)** — replace the vanilla gradient
+  estimate with a Fisher-information-preconditioned one. One
+  extra matrix-vector multiply per generation at 35×35.
+- **Antithetic variance analysis** — log the per-pair reward
+  difference so you can see mirrored sampling's variance
+  reduction in real numbers.
+- **Population-based training** — run multiple ES instances in
+  parallel with different `sigma` / `lr` values and promote the
+  leader. This crosses the GA / RL boundary, which is kind of
+  the point.
+- **Genetic programming of the feature set** — the GA and ES
+  both tune the same fixed 35-weight feature vector. The next
+  real step-change would be letting the optimizer discover new
+  features.
+
+---
+
 ## Benchmarking: pairwise heatmap
 
 `scripts/heatmap_pairwise.py` builds an `N × N` matrix where `M[row,
@@ -887,6 +1106,12 @@ in `megagem/players/`.
   `evo2`/`evo3`/`evo4` fall back to class defaults with a stderr
   warning. (Evo4's class defaults reproduce Evo3 exactly on round
   one, so missing Evo4 weights still give you a reasonable opponent.)
+* **`scripts.rl` output files have an `rl_` infix** so the CLI,
+  heatmap, and `scripts.evolve` opponent lookup chain will never
+  pick them up automatically. That's intentional — RL outputs
+  should never silently compete with the GA champion. Promoting
+  an RL winner is a deliberate `cp` that strips the infix on the
+  way to `saved_best_weights/`.
 * **`ModuleNotFoundError: matplotlib`** — only the GA + heatmap scripts
   need it. `pip install matplotlib`. The CLI and tests don't.
 * **Tests pass but the GA hangs** — you probably ran it inside an

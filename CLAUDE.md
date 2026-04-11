@@ -18,9 +18,12 @@ mega-gem/
 ├── railway.json        # Railway service config + healthcheck
 ├── README.md
 ├── CLAUDE.md
-└── research/           # Python engine + AI zoo + GA tuners + tests
+└── research/           # Python engine + AI zoo + GA/RL tuners + tests
     ├── megagem/
     ├── scripts/
+    │   ├── evolve/         # GA tuner (evo1..evo4)
+    │   ├── rl/             # RL tuner (Evolution Strategies, evo4-focused)
+    │   └── heatmap_pairwise.py
     ├── tests/
     ├── saved_best_weights/
     └── RULES.md
@@ -31,7 +34,7 @@ mega-gem/
 ```bash
 cd research
 
-# Tests (stdlib unittest, no pytest, 120 tests, sub-second)
+# Tests (stdlib unittest, no pytest, 132 tests, sub-second)
 python -m unittest discover
 python -m unittest tests.test_heuristic -v
 python -m unittest tests.test_evo2 -v
@@ -55,6 +58,13 @@ python -m scripts.evolve --ai evo3                              # tunes Evo3AI v
 python -m scripts.evolve --ai evo4 --opponent vs_evo3           # train evo4 against frozen evo3
 python -m scripts.heatmap_pairwise                              # requires saved_best_weights/*.json
 
+# RL tuner — Evolution Strategies (Salimans et al. 2017) on the same
+# 35-weight Evo4 policy the GA tunes. Algorithmically distinct from
+# scripts.evolve: single point θ moves via mirrored-sampling gradient
+# estimates and an Adam update, no population/tournament/crossover.
+python -m scripts.rl --ai evo4 --opponent vs_random             # fast smoke training
+python -m scripts.rl --ai evo4 --opponent vs_all                # full run, mirrors GA defaults
+python -m scripts.rl --ai evo4 --resume artifacts/rl_evo4_state_vs_all_4p.json
 ```
 
 ### Multiplayer server (from the repo root)
@@ -89,6 +99,7 @@ The `saved_best_weights/` folder currently holds:
 
 - Python engine, CLI, and tests: **stdlib only**.
 - `scripts/evolve/` and `scripts/heatmap_pairwise.py`: `pip install matplotlib` (forced to `Agg` backend).
+- `scripts/rl/`: **stdlib only for import, training, and tests.** matplotlib is only needed for `save_history_plot` and is *lazy-imported* inside that function, so `python -m unittest tests.test_rl_evo4` passes with no third-party deps. Install matplotlib only if you want the training-curve plot from `python -m scripts.rl`.
 - `server/` multiplayer server: `fastapi`, `uvicorn[standard]`, `pydantic` (see `requirements.txt`).
 - `web/` browser client: zero dependencies, vanilla JS.
 
@@ -150,6 +161,33 @@ One unified package, four AI profiles, eight opponent modes. The CLI is `python 
 
 **Output filenames follow one uniform formula**: `best_weights_{profile_key}_{tag}_{num_players}p.json`, where `tag` is one of `vs_all`, `vs_random`, `vs_heuristic`, `vs_evo1..4`, `self`. The same formula drives the shared `candidate_filenames` lookup chain in `opponents.py`, which is mirrored byte-for-byte in `research/megagem/__main__.py` and `server/ai_factory.py`. There are no legacy filename fallbacks — the previously-checked-in `best_weights_4p.json` and `best_weights_evo2_vs_old_4p.json` were renamed to `best_weights_evo1_vs_heuristic_4p.json` and `best_weights_evo2_vs_evo1_4p.json` to fit the uniform scheme.
 
+### RL tuner — `scripts/rl/`
+
+A second, algorithmically distinct optimizer targeting the same 35-weight Evo4 policy as the GA. **OpenAI-style Evolution Strategies** (Salimans et al. 2017) with mirrored sampling, centered rank shaping, and an Adam outer-loop update. It is not a replacement for `scripts.evolve` — it's a parallel path for experimenting with parameter-space policy-gradient RL on the existing engine.
+
+**Why ES and not REINFORCE**: the engine is episodic (only terminal return from `score_game`, no step reward), `Evo4.choose_bid` is deterministic per state, and ES slots into the existing fork-pool worker pattern with zero changes to `Player` or `engine.py`. REINFORCE would require a new stochastic Evo4 subclass, a trajectory-buffer hook on `Player`, and log-prob math that breaks near the bid cap — not worth the surface area for what would still collapse to Monte Carlo anyway.
+
+**Package layout** (under `research/scripts/rl/`):
+
+- `optim.py` — stdlib `Adam` dataclass (`m`, `v`, `t`, `step`, `state_dict`/`from_state`). **Ascent direction** (`θ + α·m̂/(√v̂+ε)`), not descent, because ES maximises reward. `step` does NOT mutate its input `theta`, which the trainer relies on for its pre-update snapshot.
+- `fitness.py` — `_game_reward` (normalized score margin `(mine − max_opp) / max(1, |mine| + |max_opp|)`), `rank_transform` (centered Salimans shaping in `[-0.5, +0.5]`), `evaluate_perturbations` (batch), `evaluate_theta` (held-out). Fork-pool fan-out mirrors `scripts.evolve.ga` byte-for-byte: `_WORKER_STATE` populated in parent → inherited via `fork` → cleared in `finally`. **Deterministic at any worker count** via a pre-allocated `rewards[pert_idx][game_idx_in_pert]` 2D accumulator that is summed post-pool in loop order — do NOT fold the sum into the worker callback, that reintroduces pool-order dependence.
+- `trainer.py` — `run_es` loop, `ESResult` dataclass, `sample_epsilons` (mirrored pair layout `[ε₀, -ε₀, ε₁, -ε₁, …]`), `_clip`, `save_history_plot` (lazy-imports matplotlib), `save_best_weights` (GA-compatible JSON), `save_resume_state` / `load_resume_state` (`__tuple__` sentinels wrap `random.getstate()` tuples for JSON). The outer loop: sample epsilons → build `θ±σε` perturbations → evaluate → rank-shape → gradient `g[k] = (1/(N·σ)) · Σᵢ Rᵢ·εᵢ[k]` → Adam → θ-clip → held-out θ-eval.
+- `__main__.py` — argparse CLI (`python -m scripts.rl --ai evo4 --opponent vs_all`). Defaults match the GA's invocation style (`--population 48`, `--generations 30`, `--games-per-chart 10`) plus ES-specific knobs (`--sigma 0.10`, `--lr 0.03`, `--theta-clip 5.0`).
+
+**Seed layout**: per-generation training seeds use `(seed + gen + 1) * 9973` — identical to the GA's rotation. Held-out θ-eval uses `(seed + gen + 1000) * 9973` so the plotted training curve is decorrelated from the seeds the gradient estimate saw. Matches the GA's `(seed + generations + 100) * 9973` held-out convention in spirit, not byte-for-byte — different scale so ES and GA runs can coexist in the same artifact directory without reading each other's numbers.
+
+**Output filenames use an `rl_` infix** so they never collide with the GA's `candidate_filenames` lookup chain in `opponents.py`:
+
+```
+artifacts/best_weights_evo4_rl_{tag}_{N}p.json    # GA-compatible shape + rl_config
+artifacts/rl_evo4_history_{tag}_{N}p.png          # held-out reward + win-rate curve
+artifacts/rl_evo4_state_{tag}_{N}p.json           # θ, Adam (m/v/t), RNG state — for --resume
+```
+
+Promotion is an explicit `cp` into `saved_best_weights/` *without* the `rl_` infix — the CLI / heatmap lookup chain won't match `rl_*` names, which is deliberate (no silent auto-promotion). The weights file's JSON layout mirrors the GA's output (`fitness`, `generation`, `weights`, plus `rl_config` instead of `ga_config`) so once renamed, it's a drop-in replacement.
+
+**Seeding θ₀**: same as the GA — `scripts.evolve.opponents.load_profile_weights(profile, num_players)` via the shared `candidate_filenames` chain. Re-running `python -m scripts.rl --ai evo4` iteratively refines the current `saved_best_weights/best_weights_evo4_vs_all_4p.json` champion; if no file exists, falls back to `Evo4AI.flatten_defaults()`.
+
 ### Heatmap (`scripts/heatmap_pairwise.py`)
 
 - Default `SEED_START = 200` is **held out** from the GA's training seeds (0..9). If you change the GA's training seed range, update `SEED_START` to stay above it or the generalisation check is meaningless.
@@ -166,3 +204,5 @@ One unified package, four AI profiles, eight opponent modes. The CLI is `python 
 - **`LoanCard` bids exceed your coins.** `max_legal_bid` returns `coins + loan_amount` because the loan is conceptually paid first. Always route AI bids through `clamp_bid` rather than trusting raw output.
 - **`--ai evolved` / `--ai evo2` / `--ai evo3` / `--ai evo4` need a weights file in `saved_best_weights/`.** `evolved` exits with a clear error if nothing is found; `evo2`/`evo3`/`evo4` fall back to class defaults with a stderr warning. Weights in `artifacts/` are ignored by the CLI — you must copy them over by hand.
 - **`scripts.evolve` and the CLI use different profile keys.** The GA package uses `evo1`/`evo2`/`evo3`/`evo4` (`--ai evo1` runs the HyperAdaptiveSplitAI tuner). The terminal CLI for *playing* still uses the original key `evolved` (`python -m megagem --ai evolved`). The class itself is unchanged — only the GA-side label is uniformised so file paths align with `evo2`/`evo3`/`evo4`.
+- **`scripts.rl` output files have an `rl_` infix that blocks auto-promotion.** `best_weights_evo4_rl_vs_all_4p.json` does NOT match the CLI / heatmap / GA `candidate_filenames` chain, on purpose — RL outputs never silently compete with the GA champion. Promote an RL winner by `cp`-ing the file into `saved_best_weights/` with the infix stripped (`best_weights_evo4_vs_all_4p.json`). The `rl_config` field inside the JSON is preserved for provenance.
+- **`scripts.rl` determinism at `workers>1` depends on a pre-allocated 2D accumulator.** `fitness.evaluate_perturbations` sums `rewards[pert_idx][game_idx]` rows *after* the pool drains, in loop order. Folding the sum into `_worker_play` would make the mean float-sum order-dependent on completion order. The `touched[][]` validation exists to catch a silently-dropped task before it biases the mean toward 0. The `DeterminismTest` in `tests/test_rl_evo4.py` runs with `workers=1`; the parallel path is deterministic *by construction* from the same accumulator pattern and is exercised by the CLI smoke run, not by a unit test.
