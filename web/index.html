@@ -11,7 +11,6 @@
         <h1>MegaGem</h1>
         <div class="topbar-actions">
             <span id="conn-status" class="conn-status" hidden></span>
-            <button id="topbar-leaderboard" class="ghost">Leaderboards</button>
             <a href="/bots" class="ghost">Bots</a>
             <a href="https://github.com/Lachy-Dauth/mega-gem" class="ghost" target="_blank" rel="noopener">GitHub</a>
             <button id="leave" class="ghost" hidden>Leave room</button>
@@ -42,9 +41,6 @@
                     <select id="menu-ai-kind">
                         <option value="random">Random (very easy)</option>
                         <option value="heuristic">Heuristic (medium)</option>
-                        <option value="evolved">Evolved (hard)</option>
-                        <option value="evo2">Evo2 (harder)</option>
-                        <option value="evo3">Evo3 (very hard)</option>
                         <option value="evo4" selected>Evo4 (hardest)</option>
                     </select>
                 </label>
@@ -136,9 +132,6 @@
                         <select id="lobby-ai-kind">
                             <option value="random">Random (very easy)</option>
                             <option value="heuristic">Heuristic (medium)</option>
-                            <option value="evolved">Evolved (hard)</option>
-                            <option value="evo2">Evo2 (harder)</option>
-                            <option value="evo3">Evo3 (very hard)</option>
                             <option value="evo4" selected>Evo4 (hardest)</option>
                         </select>
                     </label>
@@ -226,26 +219,6 @@
                 </div>
 
                 <!-- Column 3: Chat is moved here by JS on game screen -->
-            </div>
-        </section>
-
-        <!-- ===================== LEADERBOARD ===================== -->
-        <section id="screen-leaderboard" class="screen" hidden>
-            <div class="card leaderboard-card">
-                <h2>Bot leaderboards</h2>
-                <p class="muted">
-                    Win rate of each AI bot across recorded multiplayer games
-                    where there was exactly one human seat. Updates whenever a
-                    game finishes on this server.
-                </p>
-                <div id="leaderboard-stats" class="muted leaderboard-stats"></div>
-                <div id="leaderboard-tables" class="leaderboard-tables">
-                    <p class="muted">Loading…</p>
-                </div>
-                <div class="row">
-                    <button id="leaderboard-refresh" class="secondary">Refresh</button>
-                    <button id="leaderboard-back" class="primary">Back</button>
-                </div>
             </div>
         </section>
 

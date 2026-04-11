@@ -5,10 +5,16 @@ This is a trimmed version of the logic in
 script so we can't import its factories without side effects. We keep
 the same AI names so the browser client and the CLI share vocabulary.
 
+Only the playable bots are wired up here: ``random``, ``heuristic``,
+and ``evo4`` (the current champion). Earlier evo generations still
+exist in ``research/megagem/players/`` for the GA tuner and CLI, but
+the multiplayer server intentionally only exposes the latest one so
+players aren't overwhelmed with near-duplicate difficulty levels.
+
 Weights are loaded from ``research/saved_best_weights/`` (since the
 server's working directory at deploy time is the repo root, we
 resolve the path explicitly). Missing weights fall back to class
-defaults — the server should never *crash* because Evo3 weights
+defaults — the server should never *crash* because Evo4 weights
 aren't available, it just runs with vanilla constants.
 """
 
@@ -19,11 +25,8 @@ from pathlib import Path
 from typing import Callable
 
 from megagem.players import (
-    Evo2AI,
-    Evo3AI,
     Evo4AI,
     HeuristicAI,
-    HyperAdaptiveSplitAI,
     Player,
     RandomAI,
 )
@@ -63,29 +66,6 @@ def _load_evo_weights(profile_key: str, num_players: int) -> list[float] | None:
     return None
 
 
-def _evolved_factory(name: str, *, seed: int, num_players: int) -> Player:
-    weights = _load_evo_weights("evo1", num_players)
-    if weights is None:
-        # No pre-Evo2 GA weights available — fall back to the
-        # hand-tuned defaults so the seat still has a plausible bot.
-        return HyperAdaptiveSplitAI(name, seed=seed)
-    return HyperAdaptiveSplitAI.from_weights(name, weights, seed=seed)
-
-
-def _evo2_factory(name: str, *, seed: int, num_players: int) -> Player:
-    weights = _load_evo_weights("evo2", num_players)
-    if weights is None:
-        return Evo2AI(name, seed=seed)
-    return Evo2AI.from_weights(name, weights, seed=seed)
-
-
-def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
-    weights = _load_evo_weights("evo3", num_players)
-    if weights is None:
-        return Evo3AI(name, seed=seed)
-    return Evo3AI.from_weights(name, weights, seed=seed)
-
-
 def _evo4_factory(name: str, *, seed: int, num_players: int) -> Player:
     weights = _load_evo_weights("evo4", num_players)
     if weights is None:
@@ -96,9 +76,6 @@ def _evo4_factory(name: str, *, seed: int, num_players: int) -> Player:
 AI_FACTORIES: dict[str, AIFactory] = {
     "random":      lambda name, *, seed, num_players: RandomAI(name, seed=seed),
     "heuristic":   lambda name, *, seed, num_players: HeuristicAI(name, seed=seed),
-    "evolved":     _evolved_factory,
-    "evo2":        _evo2_factory,
-    "evo3":        _evo3_factory,
     "evo4":        _evo4_factory,
 }
 
