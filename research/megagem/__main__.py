@@ -15,6 +15,7 @@ from .explain import ExplainingPlayer, render_round_rationales
 from .players import (
     Evo2AI,
     Evo3AI,
+    Evo4AI,
     HeuristicAI,
     HumanPlayer,
     HyperAdaptiveSplitAI,
@@ -149,12 +150,55 @@ def _evo2_factory(name: str, *, seed: int, num_players: int) -> Player:
     return Evo2AI(name, seed=seed)
 
 
+def _evo4_factory(name: str, *, seed: int, num_players: int) -> Player:
+    """Build an Evo4AI with GA-evolved weights for this seat count.
+
+    Lookup order (first match wins), all paths rooted in
+    ``saved_best_weights/``:
+
+    1. ``best_weights_evo4_vs_all_{N}p.json`` — trained with the
+       fitness averaged across all previous bots. Top priority: that
+       is the training regime ``scripts/evolve_evo4.py`` uses by
+       default.
+    2. ``best_weights_evo4_vs_evo3_{N}p.json`` — trained against a
+       frozen Evo3 snapshot.
+    3. ``best_weights_evo4_self_{N}p.json`` — self-play.
+    4. ``best_weights_evo4_{N}p.json`` — legacy un-tagged.
+    5. ``best_weights_evo4.json`` — global fallback.
+
+    If none exist, falls back to ``Evo4AI``'s class defaults with a
+    one-time stderr warning so ``--ai evo4`` still works without
+    running the GA. Class defaults reduce to Evo3 behaviour (zero
+    color-bias influence), so the fallback is the same strength as
+    ``--ai evo3`` with defaults — no regression vs the previous AI.
+    """
+    candidates = _expand_weight_candidates([
+        f"best_weights_evo4_vs_all_{num_players}p.json",
+        f"best_weights_evo4_vs_evo3_{num_players}p.json",
+        f"best_weights_evo4_self_{num_players}p.json",
+        f"best_weights_evo4_{num_players}p.json",
+        "best_weights_evo4.json",
+    ])
+    for path in candidates:
+        if path.exists():
+            data = json.loads(path.read_text())
+            return Evo4AI.from_weights(name, data["weights"], seed=seed)
+    print(
+        "warning: no evo4 weights in saved_best_weights/ — using class "
+        "defaults (equivalent to Evo3). Run `python -m scripts.evolve_evo4` "
+        "and copy the result into saved_best_weights/ for evolved weights.",
+        file=sys.stderr,
+    )
+    return Evo4AI(name, seed=seed)
+
+
 AI_FACTORIES: dict[str, AIFactory] = {
     "random":     lambda name, *, seed, num_players: RandomAI(name, seed=seed),
     "heuristic":  lambda name, *, seed, num_players: HeuristicAI(name, seed=seed),
     "evolved":    _evolved_factory,
     "evo2":       _evo2_factory,
     "evo3":       _evo3_factory,
+    "evo4":       _evo4_factory,
 }
 
 
@@ -207,8 +251,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--ai", type=str, default="heuristic",
                         choices=list(AI_FACTORIES),
                         help=("Which AI to use for opponents (and --all-ai players). "
-                              "`evolved`, `evo2`, and `evo3` load GA-tuned weights "
-                              "from saved_best_weights/."))
+                              "`evolved`, `evo2`, `evo3`, and `evo4` load GA-tuned "
+                              "weights from saved_best_weights/."))
     args = parser.parse_args(argv)
 
     players = build_players(args.players, args.all_ai, args.debug, args.seed, args.ai)

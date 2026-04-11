@@ -32,6 +32,7 @@ from megagem.engine import is_game_over, play_round, score_game, setup_game
 from megagem.players import (
     Evo2AI,
     Evo3AI,
+    Evo4AI,
     HeuristicAI,
     HyperAdaptiveSplitAI,
     RandomAI,
@@ -114,6 +115,21 @@ def make_factories() -> dict:
         factories["Evo3"] = lambda name, seed: Evo3AI.from_weights(name, evo3, seed=seed)
     else:
         factories["Evo3"] = lambda name, seed: Evo3AI(name, seed=seed)
+
+    # Evo4: Evo3 + bid-signal-driven color distribution adjustment. Same
+    # always-include fallback so the row/column shows up even on a fresh
+    # clone without running the GA.
+    evo4 = _try_load(
+        "best_weights_evo4_vs_all_4p.json",
+        "best_weights_evo4_vs_evo3_4p.json",
+        "best_weights_evo4_self_4p.json",
+        "best_weights_evo4_4p.json",
+        "best_weights_evo4.json",
+    )
+    if evo4 is not None:
+        factories["Evo4"] = lambda name, seed: Evo4AI.from_weights(name, evo4, seed=seed)
+    else:
+        factories["Evo4"] = lambda name, seed: Evo4AI(name, seed=seed)
 
     return factories
 

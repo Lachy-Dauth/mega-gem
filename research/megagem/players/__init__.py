@@ -14,6 +14,7 @@ value-estimation and discount-feature math lives in
 from .base import Player
 from .evo2 import Evo2AI
 from .evo3 import Evo3AI
+from .evo4 import Evo4AI
 from .helpers import (
     _GEMS_PER_COLOR,
     _TOTAL_AUCTIONS,
@@ -45,6 +46,7 @@ from .random_ai import RandomAI
 __all__ = [
     "Evo2AI",
     "Evo3AI",
+    "Evo4AI",
     "HeuristicAI",
     "HumanPlayer",
     "HyperAdaptiveSplitAI",

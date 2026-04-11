@@ -21,6 +21,7 @@ from typing import Callable
 from megagem.players import (
     Evo2AI,
     Evo3AI,
+    Evo4AI,
     HeuristicAI,
     HyperAdaptiveSplitAI,
     Player,
@@ -83,12 +84,26 @@ def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
     return Evo3AI.from_weights(name, weights, seed=seed)
 
 
+def _evo4_factory(name: str, *, seed: int, num_players: int) -> Player:
+    weights = _load_weights([
+        f"best_weights_evo4_vs_all_{num_players}p.json",
+        f"best_weights_evo4_vs_evo3_{num_players}p.json",
+        f"best_weights_evo4_self_{num_players}p.json",
+        f"best_weights_evo4_{num_players}p.json",
+        "best_weights_evo4.json",
+    ])
+    if weights is None:
+        return Evo4AI(name, seed=seed)
+    return Evo4AI.from_weights(name, weights, seed=seed)
+
+
 AI_FACTORIES: dict[str, AIFactory] = {
     "random":      lambda name, *, seed, num_players: RandomAI(name, seed=seed),
     "heuristic":   lambda name, *, seed, num_players: HeuristicAI(name, seed=seed),
     "evolved":     _evolved_factory,
     "evo2":        _evo2_factory,
     "evo3":        _evo3_factory,
+    "evo4":        _evo4_factory,
 }
 
 
