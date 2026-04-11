@@ -135,6 +135,10 @@ def load_profile_weights(
                 )
             return LoadedWeights(weights=weights, source=path)
     # No file on disk — fall back to the AI class's hardcoded defaults.
+    print(
+        f"no saved weights found for {profile.label} at {num_players}p, "
+        f"falling back to class defaults"
+    )
     return LoadedWeights(
         weights=profile.flatten_defaults(),
         source=Path(f"<{profile.label} class defaults>"),

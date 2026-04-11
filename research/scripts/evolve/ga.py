@@ -36,10 +36,16 @@ from .profiles import AIProfile
 
 # --- Shared GA hyperparameters ---------------------------------------------
 #
-# Initial sampling range for individual #1..N (individual #0 is the
-# profile's DEFAULT_SEED). Mutation may push genes a bit further but
-# they get clipped at ``profile.mutation_clip``.
+# Initial sampling range for the purely-random escape-hatch individuals
+# (see ``init_from_seed`` below). The bulk of the initial population is
+# seeded from the current champion instead of this uniform range.
 INIT_LO, INIT_HI = -1.0, 1.0
+# Per-gene gaussian sigma used when perturbing the champion to build the
+# initial population, expressed as a multiple of ``profile.mutation_sigma``.
+# Wider than a single mutation step so gen-0 actually *explores* around
+# the champion rather than clustering in an ε-ball that selection can't
+# distinguish from the seed itself.
+INIT_SIGMA_SCALE = 3.0
 MUTATION_RATE = 0.20
 TOURNAMENT_SIZE = 3
 ELITES = 2
@@ -51,6 +57,32 @@ CHARTS = "ABCDE"
 
 def random_individual(profile: AIProfile, rng: random.Random) -> list[float]:
     return [rng.uniform(INIT_LO, INIT_HI) for _ in range(profile.num_weights)]
+
+
+def init_from_seed(
+    profile: AIProfile,
+    seed_weights: list[float],
+    rng: random.Random,
+) -> list[float]:
+    """Return a perturbed copy of ``seed_weights`` for the initial pop.
+
+    Every gene gets an independent gaussian kick at
+    ``profile.mutation_sigma * INIT_SIGMA_SCALE`` and is clipped to
+    ``profile.mutation_clip``. Unlike :func:`mutate`, this touches
+    *all* genes — the point of the initial population is diversity
+    around the champion, not incremental refinement.
+    """
+    sigma = profile.mutation_sigma * INIT_SIGMA_SCALE
+    clip = profile.mutation_clip
+    out: list[float] = []
+    for w in seed_weights:
+        v = w + rng.gauss(0.0, sigma)
+        if v > clip:
+            v = clip
+        elif v < -clip:
+            v = -clip
+        out.append(v)
+    return out
 
 
 def tournament_select(
@@ -258,18 +290,28 @@ def run_ga(
     """
     rng = random.Random(seed)
 
-    # --- Initial population: the current champion + random fillers.
+    # --- Initial population: the current champion + perturbed copies.
     # Individual #0 is loaded from saved_best_weights/ via the profile's
     # own lookup chain (the same chain used to load opponent weights for
     # vs_all / vs_evoK modes). If no weights file exists yet, we fall
     # back to the AI class's hardcoded defaults. This guarantees every
     # GA run *starts from the best known weights* instead of a stale
     # constant — you can just re-run the script to iterate.
+    #
+    # The rest of the population is seeded as *perturbed copies* of the
+    # champion rather than fully-random vectors. The previous "one good
+    # + N-1 uniform[-1,1] noise" init meant generation 0 was effectively
+    # "champion vs garbage": the champion trivially won the tournament,
+    # selection couldn't distinguish the rest, and the GA burned several
+    # generations just climbing back to parity with the seed. Filling
+    # with gaussian perturbations around the champion puts every
+    # individual in a meaningful neighbourhood on day one.
     seed_loaded = load_profile_weights(profile, num_players)
     print(f"seed individual #0: {profile.label} from {seed_loaded.source}")
-    population: list[list[float]] = [list(seed_loaded.weights)]
+    seed_weights = list(seed_loaded.weights)
+    population: list[list[float]] = [list(seed_weights)]
     while len(population) < population_size:
-        population.append(random_individual(profile, rng))
+        population.append(init_from_seed(profile, seed_weights, rng))
 
     # --- Print which providers training will use (helpful for vs_all)
     n_games_per_eval = len(CHARTS) * games_per_chart
