@@ -120,8 +120,8 @@ mega-gem/
     ├── scripts/                 # Standalone runnables (NOT imported by megagem/)
     │   ├── evolve/                   # Unified GA tuner for evo1..evo4
     │   │   ├── __main__.py           # `python -m scripts.evolve --ai evoN`
-    │   │   ├── profiles.py           # Per-AI registry (defaults, lookup chains, ...)
-    │   │   ├── opponents.py          # 8-mode opponent provider registry
+    │   │   ├── profiles.py           # Per-AI registry (num_weights, mutation σ, printer)
+    │   │   ├── opponents.py          # 8-mode opponent providers + shared lookup chain
     │   │   └── ga.py                 # GA loop, evaluation, plot/json output
     │   └── heatmap_pairwise.py        # All-vs-all win-rate matrix plot
     ├── tests/                   # unittest suite (112 tests, stdlib only)
@@ -134,9 +134,9 @@ mega-gem/
     │   ├── test_missions.py
     │   └── test_scoring.py
     ├── saved_best_weights/      # Checked-in GA outputs — the CLI reads these
-    │   ├── best_weights_4p.json                # HyperAdaptiveSplitAI
-    │   ├── best_weights_evo2_vs_old_4p.json    # Evo2AI
-    │   └── best_weights_evo3_vs_all_4p.json    # Evo3AI
+    │   ├── best_weights_evo1_vs_heuristic_4p.json  # HyperAdaptiveSplitAI
+    │   ├── best_weights_evo2_vs_evo1_4p.json       # Evo2AI
+    │   └── best_weights_evo3_vs_all_4p.json        # Evo3AI
     ├── artifacts/               # Transient GA output (gitignored)
     └── RULES.md                 # The actual game rules — read this first
 ```
@@ -664,10 +664,22 @@ python -m scripts.evolve --ai evo4 --opponent vs_evo3
 The four profile keys (`evo1`, `evo2`, `evo3`, `evo4`) cover every
 GA-targeted AI. `evo1` is `HyperAdaptiveSplitAI` (the class name is
 unchanged — only the GA uses the symmetric `evo1` label). Each profile
-declares its own weight count, default seed genome, mutation sigma,
-and lookup chain in `scripts/evolve/profiles.py`; the GA loop in
+only declares its own weight count, mutation sigma, and paste-ready
+printer in `scripts/evolve/profiles.py`; the lookup chain is shared
+across all profiles (parameterized only by profile key), and the
+fallback genome comes from the AI class's own `flatten_defaults()`
+classmethod, so the profile registry stays tiny. The GA loop in
 `scripts/evolve/ga.py` is fully generic over the profile so all four
 share one code path.
+
+**Individual #0 of every GA run is seeded from
+`saved_best_weights/`** via the shared lookup chain — same chain used
+to pull frozen opponents for `vs_all` / `vs_evoK` modes. Re-running
+`python -m scripts.evolve --ai evo3` therefore iteratively refines the
+current champion instead of starting from a stale constant. If no
+weights file exists yet, the GA falls back to
+`profile.ai_class.flatten_defaults()` (the class's hardcoded
+`DEFAULT_*` constants) and the run starts from there.
 
 | Profile | Class | Weights | Mutation σ |
 |---------|-------|---------|------------|
@@ -752,13 +764,16 @@ python -m scripts.evolve --ai evoN \
 | `--num-players` | `4` | Seats per fitness game. |
 | `--output-dir` | `artifacts` | Where the plot + JSON go. |
 
-> **Default-reduces-to-Evo3 guarantee for evo4.** The evo4 default
-> seed genome zeros the new outer weights (`color_bias_influence`,
-> `w_opp_max`, `w_opp_avg`) and uses the checked-in Evo2 champion for
-> the internal predictor, so generation 0's best individual plays
-> exactly like Evo3. Any improvement from generation 1 onward is
-> strictly due to the GA discovering useful settings for the new
-> features.
+> **Default-reduces-to-Evo3 guarantee for evo4.** When no evo4
+> weights file exists in `saved_best_weights/`, the GA's individual
+> #0 comes from `Evo4AI.flatten_defaults()`, which zeros the new
+> outer weights (`color_bias_influence`, `w_opp_max`, `w_opp_avg`)
+> and uses the Evo2 class defaults for the internal predictor, so
+> generation 0's best individual plays exactly like Evo3. Any
+> improvement from generation 1 onward is strictly due to the GA
+> discovering useful settings for the new features. (Once you
+> promote an evo4 file into `saved_best_weights/`, fresh runs
+> start from that champion instead.)
 
 ### Expected results
 

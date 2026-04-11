@@ -81,8 +81,8 @@ cp artifacts/best_weights_evo3_vs_all_4p.json saved_best_weights/
 ```
 
 The `saved_best_weights/` folder currently holds:
-- `best_weights_4p.json` — HyperAdaptiveSplitAI (89% vs 3× HeuristicAI)
-- `best_weights_evo2_vs_old_4p.json` — Evo2AI trained vs HyperAdaptiveSplitAI (69%) *(the `--opponent vs_all` retrain is in progress; promote the fresh file into `saved_best_weights/` when it lands)*
+- `best_weights_evo1_vs_heuristic_4p.json` — HyperAdaptiveSplitAI (89% vs 3× HeuristicAI)
+- `best_weights_evo2_vs_evo1_4p.json` — Evo2AI trained vs HyperAdaptiveSplitAI (69%) *(the `--opponent vs_all` retrain is in progress; promote the fresh file into `saved_best_weights/` when it lands)*
 - `best_weights_evo3_vs_all_4p.json` — Evo3AI trained against all 6 prior bots (70% pooled)
 
 ## Dependencies
@@ -133,8 +133,8 @@ One unified package, four AI profiles, eight opponent modes. The CLI is `python 
 
 **Package layout** (under `research/scripts/evolve/`):
 
-- `profiles.py` — `AIProfile` dataclass + the registry of four profiles. Each profile carries its `ai_class`, `num_weights`, `default_seed` (copied verbatim from the legacy scripts so the GA's individual #0 is unchanged), `mutation_sigma`/`mutation_clip`, `flatten_defaults` closure (the fallback when no weights file exists), `candidate_filenames` lookup chain, and a `paste_ready` printer that formats the winner for pasting back into the AI class.
-- `opponents.py` — the eight uniform opponent modes (`vs_all`, `vs_random`, `vs_heuristic`, `vs_evo1`, `vs_evo2`, `vs_evo3`, `vs_evo4`, `self_play`) and the `build_mode_providers` dispatcher. `vs_all` returns Random + Heuristic + every evo profile *except* the challenger's own; `vs_evoK` loads frozen weights from `saved_best_weights/` via the target profile's lookup chain.
+- `profiles.py` — `AIProfile` dataclass + the registry of four profiles. Each profile only carries its `ai_class`, `num_weights`, `mutation_sigma`/`mutation_clip`, and a `paste_ready` printer. Everything else is uniform: `flatten_defaults` lives as a classmethod on the AI class itself (the single source of truth for the genome layout — it's the inverse of `from_weights`), and the lookup chain is shared across all profiles via `opponents.candidate_filenames(profile_key, num_players)`. **Individual #0 of every GA run is loaded from `saved_best_weights/`** via that shared chain — the same chain used for opponents in `vs_all` / `vs_evoK` modes. That means each fresh run starts from the current champion instead of a hardcoded constant; re-running `python -m scripts.evolve --ai evo3` iteratively refines whatever weights are already checked in. If no file exists yet, the GA falls back to `profile.flatten_defaults()` → `ai_class.flatten_defaults()` (the class's hardcoded `DEFAULT_*` constants).
+- `opponents.py` — the eight uniform opponent modes (`vs_all`, `vs_random`, `vs_heuristic`, `vs_evo1`, `vs_evo2`, `vs_evo3`, `vs_evo4`, `self_play`), the `build_mode_providers` dispatcher, and the shared `candidate_filenames` lookup chain used by every profile and mirrored in `megagem/__main__.py` + `server/ai_factory.py`. `vs_all` returns Random + Heuristic + every evo profile *except* the challenger's own; `vs_evoK` loads frozen weights from `saved_best_weights/` via the shared chain.
 - `ga.py` — the GA loop, fitness evaluation, progress bar, plot/json output. Fully generic over `AIProfile`. One code path for every profile/mode combination.
 - `__main__.py` — argparse CLI. `--ai` is required; `--opponent` defaults to `vs_all`. Output files land in `artifacts/best_weights_{key}_{tag}_{N}p.json` and `artifacts/evolve_{key}_history_{tag}_{N}p.png`.
 
@@ -147,9 +147,9 @@ One unified package, four AI profiles, eight opponent modes. The CLI is `python 
 
 **Fitness strategy** (uniform across all profiles): rotating per-generation seeds `seed_offset = (seed + gen + 1) * 9973` so each generation samples a fresh slice of seed space, then a held-out re-eval of the top-5 elites against the same opponent distribution at the end. The held-out winner — not the per-gen best — is what gets written to disk. Per-generation best/mean dips are expected because the seeds shift; the held-out re-eval is the canonical "did it generalise?" check. There is no fitness cache (correct only under fixed seeds, which the unified loop never uses).
 
-**vs_all is the default** for every profile. It pools win rate across Random + Heuristic + every other evo class (loaded from `saved_best_weights/`, falling back to class defaults via the profile's `flatten_defaults` closure). Each provider gets `len(CHARTS) × games_per_chart` games on a non-overlapping seed slice (offset by `prov_idx * 101`) so a challenger can't get lucky by hitting the same seed against every opponent.
+**vs_all is the default** for every profile. It pools win rate across Random + Heuristic + every other evo class (loaded from `saved_best_weights/`, falling back to the AI class's `flatten_defaults()` classmethod). Each provider gets `len(CHARTS) × games_per_chart` games on a non-overlapping seed slice (offset by `prov_idx * 101`) so a challenger can't get lucky by hitting the same seed against every opponent.
 
-**Output filename guarantee**: the unified script writes the same filenames the four legacy scripts wrote — `best_weights_evo2_vs_all_4p.json`, `best_weights_evo3_self_4p.json`, etc. The lookup chains in `research/megagem/__main__.py` and `server/ai_factory.py` keep working unchanged. Legacy filenames (`best_weights_4p.json`, `best_weights_evo2_vs_old_4p.json`) are still in each profile's `candidate_filenames` chain as a fallback so existing checked-in files continue to load.
+**Output filenames follow one uniform formula**: `best_weights_{profile_key}_{tag}_{num_players}p.json`, where `tag` is one of `vs_all`, `vs_random`, `vs_heuristic`, `vs_evo1..4`, `self`. The same formula drives the shared `candidate_filenames` lookup chain in `opponents.py`, which is mirrored byte-for-byte in `research/megagem/__main__.py` and `server/ai_factory.py`. There are no legacy filename fallbacks — the previously-checked-in `best_weights_4p.json` and `best_weights_evo2_vs_old_4p.json` were renamed to `best_weights_evo1_vs_heuristic_4p.json` and `best_weights_evo2_vs_evo1_4p.json` to fit the uniform scheme.
 
 ### Heatmap (`scripts/heatmap_pairwise.py`)
 

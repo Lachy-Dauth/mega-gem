@@ -75,32 +75,55 @@ MODE_FILENAME_TAGS: dict[str, str] = {
 _WEIGHTS_DIR = Path("saved_best_weights")
 
 
+def candidate_filenames(profile_key: str, num_players: int) -> list[str]:
+    """Return the uniform lookup chain for any profile.
+
+    Same chain for every evo profile — just the profile key varies.
+    First existing match wins; the un-tagged ``best_weights_{key}_{N}p``
+    entry is the fallback for pre-tag files (none of the
+    checked-in weights actually use it right now, but we keep it so the
+    GA can pick up a weights file the user dropped in by hand without
+    worrying about mode tags).
+    """
+    return [
+        f"best_weights_{profile_key}_vs_all_{num_players}p.json",
+        f"best_weights_{profile_key}_vs_random_{num_players}p.json",
+        f"best_weights_{profile_key}_vs_heuristic_{num_players}p.json",
+        f"best_weights_{profile_key}_vs_evo1_{num_players}p.json",
+        f"best_weights_{profile_key}_vs_evo2_{num_players}p.json",
+        f"best_weights_{profile_key}_vs_evo3_{num_players}p.json",
+        f"best_weights_{profile_key}_vs_evo4_{num_players}p.json",
+        f"best_weights_{profile_key}_self_{num_players}p.json",
+        f"best_weights_{profile_key}_{num_players}p.json",
+    ]
+
+
 @dataclass(frozen=True)
-class _LoadedWeights:
+class LoadedWeights:
     """Result of looking up a profile's weights file."""
 
     weights: list[float]
     source: Path  # real path on disk OR a sentinel like "<class defaults>"
 
 
-def _load_profile_weights_for(
+def load_profile_weights(
     profile: AIProfile,
     num_players: int,
-) -> _LoadedWeights:
+) -> LoadedWeights:
     """Return the best available weights for ``profile`` at this seat count.
 
-    Walks the profile's ``candidate_filenames`` chain (rooted in
+    Walks the uniform :func:`candidate_filenames` chain (rooted in
     ``saved_best_weights/``), returning the first existing match. If
-    none exist, falls back to ``profile.flatten_defaults()`` and
-    reports a sentinel source path so the caller can log "class
-    defaults".
+    none exist, falls back to ``profile.flatten_defaults()`` (which
+    delegates to the AI class's own classmethod) and reports a
+    sentinel source path so the caller can log "class defaults".
 
     Validates that any loaded file matches the profile's expected
     ``num_weights`` — a length mismatch means the file is for a
     different AI version, and silently ignoring it would lead to a
     confusing crash inside the GA loop.
     """
-    for filename in profile.candidate_filenames(num_players):
+    for filename in candidate_filenames(profile.key, num_players):
         path = _WEIGHTS_DIR / filename
         if path.exists():
             data = json.loads(path.read_text())
@@ -110,9 +133,9 @@ def _load_profile_weights_for(
                     f"{path}: expected {profile.num_weights} weights "
                     f"for {profile.label}, got {len(weights)}"
                 )
-            return _LoadedWeights(weights=weights, source=path)
+            return LoadedWeights(weights=weights, source=path)
     # No file on disk — fall back to the AI class's hardcoded defaults.
-    return _LoadedWeights(
+    return LoadedWeights(
         weights=profile.flatten_defaults(),
         source=Path(f"<{profile.label} class defaults>"),
     )
@@ -237,7 +260,7 @@ def build_mode_providers(
     if mode_key in ("vs_evo1", "vs_evo2", "vs_evo3", "vs_evo4"):
         target_key = mode_key[len("vs_"):]
         target_profile = AI_PROFILES[target_key]
-        loaded = _load_profile_weights_for(target_profile, num_players)
+        loaded = load_profile_weights(target_profile, num_players)
         if not quiet:
             print(f"{mode_key}: {target_profile.label} opponents loaded from {loaded.source}")
         return [(
@@ -270,7 +293,7 @@ def build_mode_providers(
         if other_key == profile.key:
             continue
         other_profile = AI_PROFILES[other_key]
-        loaded = _load_profile_weights_for(other_profile, num_players)
+        loaded = load_profile_weights(other_profile, num_players)
         if not quiet:
             print(
                 f"vs_all: {other_profile.label} opponents loaded from {loaded.source}"

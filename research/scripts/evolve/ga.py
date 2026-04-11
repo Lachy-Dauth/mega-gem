@@ -29,6 +29,7 @@ from megagem.engine import is_game_over, play_round, score_game, setup_game
 from .opponents import (
     OpponentProvider,
     build_mode_providers,
+    load_profile_weights,
 )
 from .profiles import AIProfile
 
@@ -257,8 +258,16 @@ def run_ga(
     """
     rng = random.Random(seed)
 
-    # --- Initial population: profile's seed + random fillers
-    population: list[list[float]] = [list(profile.default_seed)]
+    # --- Initial population: the current champion + random fillers.
+    # Individual #0 is loaded from saved_best_weights/ via the profile's
+    # own lookup chain (the same chain used to load opponent weights for
+    # vs_all / vs_evoK modes). If no weights file exists yet, we fall
+    # back to the AI class's hardcoded defaults. This guarantees every
+    # GA run *starts from the best known weights* instead of a stale
+    # constant — you can just re-run the script to iterate.
+    seed_loaded = load_profile_weights(profile, num_players)
+    print(f"seed individual #0: {profile.label} from {seed_loaded.source}")
+    population: list[list[float]] = [list(seed_loaded.weights)]
     while len(population) < population_size:
         population.append(random_individual(profile, rng))
 
