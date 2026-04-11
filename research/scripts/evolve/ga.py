@@ -12,10 +12,11 @@ distribution as training.
 from __future__ import annotations
 
 import json
+import multiprocessing
 import random
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -213,7 +214,7 @@ def _run_task(
     provider: OpponentProvider,
     task: _GameTask,
 ) -> bool:
-    """Thread-pool worker: build opponents and play one fitness game.
+    """Sequential-path worker: build opponents and play one fitness game.
 
     Pure over its inputs. Providers in ``scripts/evolve/opponents.py``
     are stateless closures over frozen captured data (RandomAI /
@@ -229,6 +230,69 @@ def _run_task(
     return _play_one_game(
         profile, challenger_weights, opponents, task.chart, task.game_seed
     )
+
+
+# --- Process-pool worker state ---------------------------------------------
+#
+# ``ProcessPoolExecutor`` with the *fork* mp context: each worker is
+# forked from the parent process and inherits the parent's memory at
+# fork time via copy-on-write. We exploit that to share the (large,
+# closure-based, *unpicklable*) provider/population/profile payload
+# with workers without paying any IPC cost. The parent stuffs the
+# payload into ``_WORKER_STATE`` immediately before creating the pool,
+# the workers read it in ``_worker_run_task``, and the parent clears
+# the dict after the pool tears down.
+#
+# Why not pickle the providers across the pool boundary? The providers
+# in ``scripts/evolve/opponents.py`` are inner-function closures over
+# lookup lists and RNGs, and closures are not picklable with stdlib
+# pickle. Fork + inheritance avoids the problem entirely — no
+# serialization needed for the shared state, just for the tiny
+# ``_GameTask`` payload per task.
+#
+# This requires a fork-capable platform (Linux, and macOS via the
+# explicit fork context). Windows users can pass ``--workers 1`` to
+# take the sequential path.
+_WORKER_STATE: dict = {}
+
+
+def _worker_run_task(task: _GameTask) -> tuple[int, int, bool]:
+    """Process-pool worker. Reads shared state from module globals.
+
+    The per-task IPC payload is just ``_GameTask`` (four ints + a
+    one-character string); everything else — profile, population,
+    providers — is read from ``_WORKER_STATE``, which each worker
+    inherited from the parent process via fork's copy-on-write.
+
+    Returns ``(individual_idx, provider_idx, won)`` so the parent can
+    merge wins into the right bucket.
+    """
+    profile: AIProfile = _WORKER_STATE["profile"]
+    population: list[list[float]] = _WORKER_STATE["population"]
+    providers: list[tuple[str, OpponentProvider]] = _WORKER_STATE["providers"]
+    provider = providers[task.provider_idx][1]
+    opponents = provider(task.slot, task.game_seed)
+    won = _play_one_game(
+        profile,
+        population[task.individual_idx],
+        opponents,
+        task.chart,
+        task.game_seed,
+    )
+    return (task.individual_idx, task.provider_idx, won)
+
+
+def _pool_chunksize(total_tasks: int, workers: int) -> int:
+    """Pick a chunksize that keeps IPC overhead low without starving workers.
+
+    Aim for roughly 4 chunks per worker so load balancing still works
+    if some games happen to be slower than others, while each chunk is
+    large enough that the per-chunk pickle/unpickle cost is amortised
+    across many games.
+    """
+    if total_tasks <= 0 or workers <= 0:
+        return 1
+    return max(1, total_tasks // (workers * 4))
 
 
 def evaluate_population_multi(
@@ -253,23 +317,28 @@ def evaluate_population_multi(
     the same favourable seed for every opponent type.
 
     **Parallelism.** When ``workers > 1`` the per-game work is fanned
-    out across a :class:`concurrent.futures.ThreadPoolExecutor`. Every
-    game is independent — the engine has no module-level state, every
-    challenger / opponent / GameState / game RNG is built fresh per
-    call, and providers are read-only closures (see :func:`_run_task`).
-    Results are **bit-for-bit deterministic at any worker count**
-    given the same ``--seed``: per-game seeds derive only from the
-    loop indices (``seed_offset + prov_idx * 101 + chart_idx * 1000 +
-    game_idx``), and merging is integer counting which is commutative,
-    so completion order does not affect the final score.
+    out across a :class:`concurrent.futures.ProcessPoolExecutor` built
+    on the *fork* multiprocessing context. Processes (not threads) are
+    required because the game loop is pure-Python CPU-bound work and
+    the CPython GIL would otherwise serialise every worker. Fork lets
+    each worker inherit the parent's ``_WORKER_STATE`` (profile,
+    population, providers) via copy-on-write, so only the tiny
+    ``_GameTask`` dataclass crosses the IPC boundary per task.
 
-    **GIL caveat.** On stock CPython the game loop is bytecode-bound
-    Python and the GIL serialises execution, so threads give modest
-    speedup at best. On a free-threaded build (``python3.13t``) the
-    same code path achieves real parallelism with zero changes. The
-    ``workers <= 1`` branch keeps the original fully-sequential path
-    available for debugging and reproducibility checks (no pool
-    construction overhead, clean ``pdb`` sessions).
+    Every game is independent — the engine has no module-level state,
+    every challenger / opponent / GameState / game RNG is built fresh
+    per call, and providers are read-only closures
+    (see :func:`_worker_run_task`). Results are **bit-for-bit
+    deterministic at any worker count** given the same ``--seed``:
+    per-game seeds derive only from the loop indices
+    (``seed_offset + prov_idx * 101 + chart_idx * 1000 + game_idx``),
+    and merging is integer counting which is commutative, so
+    completion order does not affect the final score.
+
+    The ``workers <= 1`` branch keeps the original fully-sequential
+    path available for debugging and reproducibility checks (no pool
+    construction overhead, clean ``pdb`` sessions, and no fork
+    dependency for Windows users).
     """
     pop_size = len(population)
     games_per_provider = len(CHARTS) * games_per_chart
@@ -309,21 +378,20 @@ def evaluate_population_multi(
             ):
                 wins_by_ind[task.individual_idx] += 1
     else:
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            future_to_task = {
-                executor.submit(
-                    _run_task,
-                    profile,
-                    population[task.individual_idx],
-                    providers[task.provider_idx][1],
-                    task,
-                ): task
-                for task in tasks
-            }
-            for future in as_completed(future_to_task):
-                task = future_to_task[future]
-                if future.result():
-                    wins_by_ind[task.individual_idx] += 1
+        _WORKER_STATE["profile"] = profile
+        _WORKER_STATE["population"] = population
+        _WORKER_STATE["providers"] = providers
+        try:
+            ctx = multiprocessing.get_context("fork")
+            chunksize = _pool_chunksize(len(tasks), workers)
+            with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as executor:
+                for ind_idx, _prov_idx, won in executor.map(
+                    _worker_run_task, tasks, chunksize=chunksize
+                ):
+                    if won:
+                        wins_by_ind[ind_idx] += 1
+        finally:
+            _WORKER_STATE.clear()
 
     return [w / total_games if total_games else 0.0 for w in wins_by_ind]
 
@@ -343,11 +411,12 @@ def evaluate_against_multi(
     held-out re-eval can print "vs 3x Random = 88.0%" lines for the
     chosen winner.
 
-    Same multithreading model as :func:`evaluate_population_multi`:
-    sequential fallback when ``workers <= 1``, otherwise fan-out via
-    a :class:`concurrent.futures.ThreadPoolExecutor`. Determinism is
-    preserved for the same reasons (loop-derived seeds, commutative
-    integer merging).
+    Same parallelism model as :func:`evaluate_population_multi`:
+    sequential fallback when ``workers <= 1``, otherwise a
+    fork-backed :class:`concurrent.futures.ProcessPoolExecutor` that
+    shares state via ``_WORKER_STATE``. Determinism is preserved for
+    the same reasons (loop-derived seeds, commutative integer
+    merging).
     """
     n_per_provider = len(CHARTS) * games_per_chart
 
@@ -376,21 +445,23 @@ def evaluate_against_multi(
             if _run_task(profile, challenger, provider, task):
                 wins_by_prov[task.provider_idx] += 1
     else:
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            future_to_task = {
-                executor.submit(
-                    _run_task,
-                    profile,
-                    challenger,
-                    providers[task.provider_idx][1],
-                    task,
-                ): task
-                for task in tasks
-            }
-            for future in as_completed(future_to_task):
-                task = future_to_task[future]
-                if future.result():
-                    wins_by_prov[task.provider_idx] += 1
+        # Wrap the single challenger in a one-element "population" so
+        # the worker code path (indexed by task.individual_idx, which
+        # is always 0 here) is shared with evaluate_population_multi.
+        _WORKER_STATE["profile"] = profile
+        _WORKER_STATE["population"] = [challenger]
+        _WORKER_STATE["providers"] = providers
+        try:
+            ctx = multiprocessing.get_context("fork")
+            chunksize = _pool_chunksize(len(tasks), workers)
+            with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as executor:
+                for _ind_idx, prov_idx, won in executor.map(
+                    _worker_run_task, tasks, chunksize=chunksize
+                ):
+                    if won:
+                        wins_by_prov[prov_idx] += 1
+        finally:
+            _WORKER_STATE.clear()
 
     per_provider: dict[str, float] = {}
     total_wins = 0

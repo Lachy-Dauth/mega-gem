@@ -85,13 +85,14 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=os.cpu_count() or 1,
         help=(
-            "Number of threads used for fitness evaluation. Defaults "
-            "to all CPU cores. Pass --workers 1 for the fully-"
-            "sequential path (debugging, reproducibility checks). "
-            "Results are deterministic for any worker count given the "
-            "same --seed. Note: stock CPython's GIL limits CPU-bound "
-            "speedup; free-threaded builds (python3.13t) get true "
-            "parallelism with no code changes."
+            "Number of worker processes used for fitness evaluation. "
+            "Defaults to all CPU cores. Uses a fork-backed "
+            "ProcessPoolExecutor so the game loop runs truly in "
+            "parallel (threads don't help — the GIL serialises pure-"
+            "Python CPU work). Pass --workers 1 for the fully-"
+            "sequential path (debugging, reproducibility checks, and "
+            "platforms without fork). Results are deterministic for "
+            "any worker count given the same --seed."
         ),
     )
     parser.add_argument(
