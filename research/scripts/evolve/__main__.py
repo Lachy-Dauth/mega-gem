@@ -144,7 +144,6 @@ def main(argv: list[str] | None = None) -> int:
     print(f"wrote {plot_path}")
     print(f"wrote {weights_path}")
 
-    profile.paste_ready(result.best_weights)
     return 0
 
 
