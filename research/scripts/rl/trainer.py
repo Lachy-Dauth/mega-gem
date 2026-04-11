@@ -316,28 +316,6 @@ def run_es(
 
     result = ESResult(theta=list(theta))
 
-    # --- Sanity evaluation of θ₀ --------------------------------------
-    # The trainer's first task is to answer "is our starting point
-    # anywhere useful?" before we burn compute on gradient estimates.
-    # Evaluate on a stable held-out range independent of any generation
-    # so the number is comparable across runs.
-    initial_offset = (seed + 500) * 9973
-    init_reward, init_win_rate = evaluate_theta(
-        profile,
-        theta,
-        providers=providers,
-        games_per_chart=games_per_chart,
-        seed_offset=initial_offset,
-        workers=workers,
-    )
-    result.initial_mean_reward = init_reward
-    result.initial_win_rate = init_win_rate
-    if not quiet:
-        print(
-            f"θ₀ held-out eval: reward={init_reward:+.3f} "
-            f"win_rate={init_win_rate:.2f}"
-        )
-
     n_pairs = population_size // 2
     ga_start = time.perf_counter()
 
@@ -349,6 +327,40 @@ def run_es(
     # on ``gen``.
     train_offset = (seed + 1) * 9973
     holdout_offset = (seed + 1000) * 9973
+
+    # --- Sanity evaluation of θ₀ --------------------------------------
+    # Evaluate the starting parameters on the *same* held-out offset
+    # the per-generation loop uses below, so ``initial_mean_reward``
+    # is directly comparable to ``mean_reward_per_gen[k]``. This is
+    # what lets the best-theta tracker below seed from θ₀ and only
+    # upgrade when a post-step θ genuinely beats the starting point.
+    init_reward, init_win_rate = evaluate_theta(
+        profile,
+        theta,
+        providers=providers,
+        games_per_chart=games_per_chart,
+        seed_offset=holdout_offset,
+        workers=workers,
+    )
+    result.initial_mean_reward = init_reward
+    result.initial_win_rate = init_win_rate
+
+    # Seed the best-theta tracker from θ₀ itself. If every subsequent
+    # generation is worse (common when θ₀ is already near a local
+    # optimum — e.g. a GA champion being fine-tuned), ``best_theta``
+    # stays at θ₀ and the saved weights file is the starting point
+    # rather than a degraded variant. ``best_generation = -1`` is
+    # the sentinel meaning "initial θ₀, no improvement".
+    result.best_mean_reward = init_reward
+    result.best_win_rate = init_win_rate
+    result.best_theta = list(theta)
+    result.best_generation = -1
+
+    if not quiet:
+        print(
+            f"θ₀ held-out eval: reward={init_reward:+.3f} "
+            f"win_rate={init_win_rate:.2f}"
+        )
 
     for gen_offset in range(generations):
         gen = start_gen + gen_offset
@@ -459,14 +471,12 @@ def run_es(
         sys.stdout.flush()
 
     result.theta = list(theta)
-    # If nothing improved over the initial θ, fall back to the initial
-    # parameters. This keeps us from accidentally publishing a worse
-    # result than we started with due to a noisy final generation.
-    if not result.best_theta:
-        result.best_theta = list(theta)
-        result.best_mean_reward = heldout_reward
-        result.best_generation = result.generations_completed - 1
-        result.best_win_rate = heldout_win_rate
+    # best_theta / best_mean_reward were seeded from θ₀ above and the
+    # per-generation loop only upgrades them on a strict improvement,
+    # so if every generation was worse than θ₀ the saved best is
+    # genuinely θ₀ and best_generation is -1. The old "fall back to
+    # final theta if best is empty" branch is gone — it was papering
+    # over the empty-initial-best bug that is now fixed.
     result.adam_state = adam.state_dict()
     result.rng_state = _serialize_rng_state(rng.getstate())
     return result

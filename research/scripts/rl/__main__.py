@@ -209,10 +209,16 @@ def main(argv: list[str] | None = None) -> int:
         f"θ₀ reward={result.initial_mean_reward:+.3f} "
         f"win_rate={result.initial_win_rate:.2f}"
     )
+    if result.best_generation < 0:
+        # Sentinel from run_es: no generation beat θ₀, so "best" is θ₀
+        # itself. Print something informative rather than "generation -1".
+        best_label = "θ₀ (no generation improved on the starting point)"
+    else:
+        best_label = f"generation {result.best_generation}"
     print(
         f"best held-out reward={result.best_mean_reward:+.3f} "
         f"win_rate={result.best_win_rate:.2f} "
-        f"at generation {result.best_generation}"
+        f"at {best_label}"
     )
 
     tag = MODE_FILENAME_TAGS[args.opponent]
