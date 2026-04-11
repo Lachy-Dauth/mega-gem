@@ -120,7 +120,7 @@ mega-gem/
     ├── scripts/                 # Standalone runnables (NOT imported by megagem/)
     │   ├── evolve/                   # Unified GA tuner for evo1..evo4
     │   │   ├── __main__.py           # `python -m scripts.evolve --ai evoN`
-    │   │   ├── profiles.py           # Per-AI registry (num_weights, mutation σ, printer)
+    │   │   ├── profiles.py           # Per-AI registry (ai_class, num_weights, mutation σ)
     │   │   ├── opponents.py          # 8-mode opponent providers + shared lookup chain
     │   │   └── ga.py                 # GA loop, evaluation, plot/json output
     │   └── heatmap_pairwise.py        # All-vs-all win-rate matrix plot
@@ -664,13 +664,13 @@ python -m scripts.evolve --ai evo4 --opponent vs_evo3
 The four profile keys (`evo1`, `evo2`, `evo3`, `evo4`) cover every
 GA-targeted AI. `evo1` is `HyperAdaptiveSplitAI` (the class name is
 unchanged — only the GA uses the symmetric `evo1` label). Each profile
-only declares its own weight count, mutation sigma, and paste-ready
-printer in `scripts/evolve/profiles.py`; the lookup chain is shared
-across all profiles (parameterized only by profile key), and the
-fallback genome comes from the AI class's own `flatten_defaults()`
-classmethod, so the profile registry stays tiny. The GA loop in
-`scripts/evolve/ga.py` is fully generic over the profile so all four
-share one code path.
+only declares the minimal metadata it needs in
+`scripts/evolve/profiles.py` (its AI class, weight count, and
+mutation sigma/clip); the lookup chain is shared across all profiles
+(parameterized only by profile key), and the fallback genome comes
+from the AI class's own `flatten_defaults()` classmethod, so the
+profile registry stays tiny. The GA loop in `scripts/evolve/ga.py`
+is fully generic over the profile so all four share one code path.
 
 **Individual #0 of every GA run is seeded from
 `saved_best_weights/`** via the shared lookup chain — same chain used
