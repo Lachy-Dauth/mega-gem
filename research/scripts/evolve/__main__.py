@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -80,6 +81,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Seats per fitness game (1 challenger + N-1 opponents).",
     )
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=os.cpu_count() or 1,
+        help=(
+            "Number of threads used for fitness evaluation. Defaults "
+            "to all CPU cores. Pass --workers 1 for the fully-"
+            "sequential path (debugging, reproducibility checks). "
+            "Results are deterministic for any worker count given the "
+            "same --seed. Note: stock CPython's GIL limits CPU-bound "
+            "speedup; free-threaded builds (python3.13t) get true "
+            "parallelism with no code changes."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("artifacts"),
@@ -108,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         "init_range": [INIT_LO, INIT_HI],
         "opponent_mode": args.opponent,
         "fitness_mode": f"{args.opponent}_rotating_seeds",
+        "workers": args.workers,
     }
 
     print(f"GA config: {json.dumps(ga_config)}")
@@ -121,6 +137,7 @@ def main(argv: list[str] | None = None) -> int:
         games_per_chart=args.games_per_chart,
         seed=args.seed,
         num_players=args.num_players,
+        workers=args.workers,
     )
     total_elapsed = time.perf_counter() - t0
     print(f"\nGA finished in {total_elapsed:.1f}s")
