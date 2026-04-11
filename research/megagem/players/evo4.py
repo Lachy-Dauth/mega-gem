@@ -67,7 +67,15 @@ from ..cards import (
 )
 from ..engine import max_legal_bid
 from ..value_charts import value_for
-from .base_evo import BaseEvoAI
+from .base_evo import (
+    BaseEvoAI,
+    _CAT_INVEST,
+    _CAT_LOAN,
+    _CAT_TREASURE,
+    _DEFAULT_MEAN_DELTA,
+    _DEFAULT_STD_DELTA,
+    _weighted_delta_stats,
+)
 from .evo2 import (
     _compute_evo2_features,
     _Evo2Features,
@@ -76,16 +84,9 @@ from .evo2 import (
     _TreasureModel as _Evo2TreasureModel,
 )
 from .evo3 import (
-    _CAT_INVEST,
-    _CAT_LOAN,
-    _CAT_TREASURE,
-    _DEFAULT_MEAN_DELTA,
-    _DEFAULT_STD_DELTA,
-    _category_of,
     _Evo3InvestModel,
     _Evo3LoanModel,
     _Evo3TreasureModel,
-    _weighted_delta_stats,
 )
 from .helpers import (
     _hyper_hidden_distribution,
@@ -522,7 +523,9 @@ class Evo4AI(BaseEvoAI):
         ]
 
     # ------------------------------------------------------------------
-    # Post-round observation: grow opp-delta history and color signal.
+    # Post-round observation: grow opp-delta history (via the shared
+    # :meth:`BaseEvoAI._record_opp_delta` helper) and then the
+    # Evo4-specific per-color signal on top for treasure rounds.
     # ------------------------------------------------------------------
     def observe_round(
         self,
@@ -530,27 +533,10 @@ class Evo4AI(BaseEvoAI):
         my_idx: int,
         result: dict,
     ) -> None:
-        # Pop the baseline cache unconditionally — a round we skip
-        # (unknown auction kind, no opponents) must not leak its stale
-        # baseline into the next observation.
-        baseline = self._last_default_bid
-        self._last_default_bid = None
-
-        auction = result.get("auction")
-        cat = _category_of(auction) if auction is not None else None
-        if cat is None:
+        obs = self._record_opp_delta(my_idx, result)
+        if obs is None:
             return
-        if baseline is None:
-            # choose_bid wasn't called this round — skip the whole
-            # observation, consistent with Evo3's no-feedback rule.
-            return
-        bids = result.get("bids") or []
-        opp_bids = [b for i, b in enumerate(bids) if i != my_idx]
-        if not opp_bids:
-            return
-        max_opp = max(opp_bids)
-        delta = float(max_opp - baseline)
-        self._opp_history.append((cat, delta))
+        cat, delta = obs
 
         # Color-signal update: treasures only. The user's example is
         # explicitly about treasure bidding ("two people bet 8 for
@@ -561,8 +547,7 @@ class Evo4AI(BaseEvoAI):
         taken_gems = result.get("taken_gems") or []
         if not taken_gems:
             return
-        n = len(taken_gems)
-        share = delta / n
+        share = delta / len(taken_gems)
         for gem in taken_gems:
             self._color_signal[gem.color] += share
 
@@ -654,45 +639,27 @@ class Evo4AI(BaseEvoAI):
             return actual_bid
 
         if isinstance(auction, InvestCard):
-            mean_delta, std_delta = _weighted_delta_stats(
-                self._opp_history, _CAT_INVEST
-            )
-            actual_raw = self.invest_model.bid(
-                f, auction.amount, mean_delta, std_delta
-            )
-            default_raw = self.invest_model.bid(
+            actual_bid, default_bid = self._bid_amount_auction_with_delta(
+                self.invest_model,
                 f,
                 auction.amount,
-                _DEFAULT_MEAN_DELTA,
-                _DEFAULT_STD_DELTA,
+                cap,
+                _CAT_INVEST,
+                apply_token_rule=True,
             )
-            actual_bid = max(0, min(int(actual_raw), cap))
-            default_bid = max(0, min(int(default_raw), cap))
-            # Free money — the token-bid-if-zero rule applies to both
-            # the actual bid and the cached baseline, so the recorded
-            # baseline matches what choose_bid actually returns.
-            if actual_bid == 0 and cap > 0:
-                actual_bid = 1
-            if default_bid == 0 and cap > 0:
-                default_bid = 1
             self._last_default_bid = default_bid
             return actual_bid
 
         if isinstance(auction, LoanCard):
-            mean_delta, std_delta = _weighted_delta_stats(
-                self._opp_history, _CAT_LOAN
-            )
-            actual_raw = self.loan_model.bid(
-                f, auction.amount, mean_delta, std_delta
-            )
-            default_raw = self.loan_model.bid(
+            actual_bid, default_bid = self._bid_amount_auction_with_delta(
+                self.loan_model,
                 f,
                 auction.amount,
-                _DEFAULT_MEAN_DELTA,
-                _DEFAULT_STD_DELTA,
+                cap,
+                _CAT_LOAN,
+                apply_token_rule=False,
             )
-            actual_bid = max(0, min(int(actual_raw), cap))
-            self._last_default_bid = max(0, min(int(default_raw), cap))
+            self._last_default_bid = default_bid
             return actual_bid
 
         self._last_default_bid = 0

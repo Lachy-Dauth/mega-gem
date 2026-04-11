@@ -44,7 +44,6 @@ enough rounds have been observed.
 
 from __future__ import annotations
 
-import math
 from typing import TYPE_CHECKING
 
 from ..cards import (
@@ -54,7 +53,18 @@ from ..cards import (
     TreasureCard,
 )
 from ..engine import max_legal_bid
-from .base_evo import BaseEvoAI
+from .base_evo import (
+    BaseEvoAI,
+    _CAT_INVEST,
+    _CAT_LOAN,
+    _CAT_TREASURE,
+    _DEFAULT_MEAN_DELTA,
+    _DEFAULT_STD_DELTA,
+    _MATCH_WEIGHT,
+    _OTHER_WEIGHT,
+    _category_of,
+    _weighted_delta_stats,
+)
 from .evo2 import (
     _compute_evo2_features,
     _Evo2Features,
@@ -65,61 +75,29 @@ if TYPE_CHECKING:
     from ..state import GameState, PlayerState
 
 
-# Category tags for the opponent-history log. Kept as short strings so
-# the history list is cheap to pickle / inspect from tests.
-_CAT_TREASURE = "treasure"
-_CAT_INVEST = "invest"
-_CAT_LOAN = "loan"
-
-# Matching-category weight multiplier. The user's spec: 4× for the
-# current category, 1× for the others.
-_MATCH_WEIGHT = 4.0
-_OTHER_WEIGHT = 1.0
-
-# Defaults when there's no history yet.
-_DEFAULT_MEAN_DELTA = 0.0
-_DEFAULT_STD_DELTA = 1.0
-
-
-def _category_of(auction: AuctionCard) -> str | None:
-    if isinstance(auction, TreasureCard):
-        return _CAT_TREASURE
-    if isinstance(auction, InvestCard):
-        return _CAT_INVEST
-    if isinstance(auction, LoanCard):
-        return _CAT_LOAN
-    return None
-
-
-def _weighted_delta_stats(
-    history: list[tuple[str, float]],
-    current_category: str,
-) -> tuple[float, float]:
-    """Weighted mean and std of the opponent-delta history.
-
-    Observations whose category matches ``current_category`` are counted
-    with weight ``_MATCH_WEIGHT``; all others with ``_OTHER_WEIGHT``.
-    Returns ``(_DEFAULT_MEAN_DELTA, _DEFAULT_STD_DELTA)`` when the
-    history is empty — the spec's "first go" defaults.
-    """
-    if not history:
-        return _DEFAULT_MEAN_DELTA, _DEFAULT_STD_DELTA
-
-    total_w = 0.0
-    total_x = 0.0
-    total_x2 = 0.0
-    for cat, delta in history:
-        w = _MATCH_WEIGHT if cat == current_category else _OTHER_WEIGHT
-        total_w += w
-        total_x += w * delta
-        total_x2 += w * delta * delta
-
-    if total_w <= 0.0:
-        return _DEFAULT_MEAN_DELTA, _DEFAULT_STD_DELTA
-
-    mean = total_x / total_w
-    var = max(0.0, total_x2 / total_w - mean * mean)
-    return mean, math.sqrt(var)
+# The opponent-pricing category tags (``_CAT_*``), the matching-category
+# weight constants (``_MATCH_WEIGHT`` / ``_OTHER_WEIGHT``), the
+# ``(0.0, 1.0)`` default-delta fallbacks, and the ``_category_of`` /
+# ``_weighted_delta_stats`` helpers now live in :mod:`.base_evo` so
+# both :class:`Evo3AI` and :class:`Evo4AI` can share them without
+# evo4 having to reach into evo3. The re-exports above preserve the
+# historical import path — tests and external callers can still write
+# ``from megagem.players.evo3 import _CAT_TREASURE``.
+__all__ = [
+    "Evo3AI",
+    "_CAT_TREASURE",
+    "_CAT_INVEST",
+    "_CAT_LOAN",
+    "_DEFAULT_MEAN_DELTA",
+    "_DEFAULT_STD_DELTA",
+    "_Evo3InvestModel",
+    "_Evo3LoanModel",
+    "_Evo3TreasureModel",
+    "_MATCH_WEIGHT",
+    "_OTHER_WEIGHT",
+    "_category_of",
+    "_weighted_delta_stats",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +410,8 @@ class Evo3AI(BaseEvoAI):
         ]
 
     # ------------------------------------------------------------------
-    # Post-round observation: grow the opponent-delta history.
+    # Post-round observation: grow the opponent-delta history via the
+    # shared :meth:`BaseEvoAI._record_opp_delta` helper.
     # ------------------------------------------------------------------
     def observe_round(
         self,
@@ -440,27 +419,7 @@ class Evo3AI(BaseEvoAI):
         my_idx: int,
         result: dict,
     ) -> None:
-        # Pop the baseline cache unconditionally so a round we decide
-        # to skip (unknown auction kind, no opponents) can't leak its
-        # stale baseline into the next observation.
-        baseline = self._last_default_bid
-        self._last_default_bid = None
-
-        auction = result.get("auction")
-        cat = _category_of(auction) if auction is not None else None
-        if cat is None:
-            return
-        if baseline is None:
-            # choose_bid wasn't called (or didn't cache a baseline) this
-            # round — skip the observation rather than fall back to the
-            # actual bid, so the delta definition stays consistent.
-            return
-        bids = result.get("bids") or []
-        opp_bids = [b for i, b in enumerate(bids) if i != my_idx]
-        if not opp_bids:
-            return
-        max_opp = max(opp_bids)
-        self._opp_history.append((cat, float(max_opp - baseline)))
+        self._record_opp_delta(my_idx, result)
 
     # ------------------------------------------------------------------
     # Bid selection.
@@ -497,40 +456,27 @@ class Evo3AI(BaseEvoAI):
             return actual_bid
 
         if isinstance(auction, InvestCard):
-            mean_delta, std_delta = _weighted_delta_stats(
-                self._opp_history, _CAT_INVEST
+            actual_bid, default_bid = self._bid_amount_auction_with_delta(
+                self.invest_model,
+                f,
+                auction.amount,
+                cap,
+                _CAT_INVEST,
+                apply_token_rule=True,
             )
-            actual_raw = self.invest_model.bid(
-                f, auction.amount, mean_delta, std_delta
-            )
-            default_raw = self.invest_model.bid(
-                f, auction.amount, _DEFAULT_MEAN_DELTA, _DEFAULT_STD_DELTA
-            )
-            actual_bid = max(0, min(int(actual_raw), cap))
-            default_bid = max(0, min(int(default_raw), cap))
-            # Free money — the token-bid-if-zero rule applies to both
-            # the actual bid (to avoid skipping free invests) and the
-            # baseline (so the recorded baseline matches what choose_bid
-            # would actually return for an empty history).
-            if actual_bid == 0 and cap > 0:
-                actual_bid = 1
-            if default_bid == 0 and cap > 0:
-                default_bid = 1
             self._last_default_bid = default_bid
             return actual_bid
 
         if isinstance(auction, LoanCard):
-            mean_delta, std_delta = _weighted_delta_stats(
-                self._opp_history, _CAT_LOAN
+            actual_bid, default_bid = self._bid_amount_auction_with_delta(
+                self.loan_model,
+                f,
+                auction.amount,
+                cap,
+                _CAT_LOAN,
+                apply_token_rule=False,
             )
-            actual_raw = self.loan_model.bid(
-                f, auction.amount, mean_delta, std_delta
-            )
-            default_raw = self.loan_model.bid(
-                f, auction.amount, _DEFAULT_MEAN_DELTA, _DEFAULT_STD_DELTA
-            )
-            actual_bid = max(0, min(int(actual_raw), cap))
-            self._last_default_bid = max(0, min(int(default_raw), cap))
+            self._last_default_bid = default_bid
             return actual_bid
 
         self._last_default_bid = 0
