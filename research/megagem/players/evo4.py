@@ -498,6 +498,32 @@ class Evo4AI(Player):
             seed=seed,
         )
 
+    @classmethod
+    def flatten_defaults(cls) -> list[float]:
+        """Return the class-level ``DEFAULT_*`` constants as a flat 35-vector.
+
+        The inverse of :meth:`from_weights`: feeding this result back
+        through ``from_weights`` reconstructs the class-default AI. The
+        unified GA tuner uses this as its fallback for individual #0
+        when no saved weights file exists yet.
+        """
+        t = cls.DEFAULT_TREASURE
+        i = cls.DEFAULT_INVEST
+        l = cls.DEFAULT_LOAN
+        internal = cls.DEFAULT_INTERNAL_EVO2_TREASURE
+        return [
+            t.bias, t.w_rounds, t.w_my, t.w_avg, t.w_top,
+            t.w_ev, t.w_std, t.w_mean_delta, t.w_std_delta,
+            t.w_opp_max, t.w_opp_avg,
+            i.bias, i.w_rounds, i.w_my, i.w_avg, i.w_top, i.w_amount,
+            i.w_mean_delta, i.w_std_delta,
+            l.bias, l.w_rounds, l.w_my, l.w_avg, l.w_top, l.w_amount,
+            l.w_mean_delta, l.w_std_delta,
+            cls.DEFAULT_COLOR_BIAS_INFLUENCE,
+            internal.bias, internal.w_rounds, internal.w_my, internal.w_avg,
+            internal.w_top, internal.w_ev, internal.w_std,
+        ]
+
     # ------------------------------------------------------------------
     # Post-round observation: grow opp-delta history and color signal.
     # ------------------------------------------------------------------
