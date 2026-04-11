@@ -15,6 +15,7 @@ import json
 import random
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -163,6 +164,27 @@ def _render_progress(
 # --- Fitness evaluation -----------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _GameTask:
+    """One ``(individual, provider, chart, game)`` unit of fitness work.
+
+    Built once up-front by the evaluation functions and then either
+    iterated sequentially or fanned out across a thread pool. The
+    ``individual_idx`` and ``provider_idx`` fields are the merge keys
+    used to accumulate wins back into per-individual / per-provider
+    buckets after the pool drains. ``slot`` matches the sequential
+    counter the previous nested-loop code passed to the provider, so
+    self-play opponent slates line up exactly with what they would
+    have been in the un-parallelised path.
+    """
+
+    individual_idx: int
+    provider_idx: int
+    chart: str
+    game_seed: int
+    slot: int
+
+
 def _play_one_game(
     profile: AIProfile,
     challenger_weights: list[float],
@@ -185,6 +207,30 @@ def _play_one_game(
     return scores[0]["total"] > max(s["total"] for s in scores[1:])
 
 
+def _run_task(
+    profile: AIProfile,
+    challenger_weights: list[float],
+    provider: OpponentProvider,
+    task: _GameTask,
+) -> bool:
+    """Thread-pool worker: build opponents and play one fitness game.
+
+    Pure over its inputs. Providers in ``scripts/evolve/opponents.py``
+    are stateless closures over frozen captured data (RandomAI /
+    HeuristicAI factories build fresh instances per call;
+    ``_make_self_play_provider`` only *reads* a list that is sampled
+    once at provider-construction time and never mutated again), and
+    ``_play_one_game`` builds a fresh challenger, opponents, GameState
+    and RNG per call. Workers therefore share no mutable state. Do
+    not introduce stateful providers without revisiting this
+    invariant.
+    """
+    opponents = provider(task.slot, task.game_seed)
+    return _play_one_game(
+        profile, challenger_weights, opponents, task.chart, task.game_seed
+    )
+
+
 def evaluate_population_multi(
     profile: AIProfile,
     population: list[list[float]],
@@ -192,6 +238,7 @@ def evaluate_population_multi(
     providers: list[tuple[str, OpponentProvider]],
     games_per_chart: int,
     seed_offset: int,
+    workers: int,
 ) -> list[float]:
     """Score every individual against *all* providers and pool win rates.
 
@@ -204,26 +251,81 @@ def evaluate_population_multi(
     Each provider uses its own disjoint slice of the seed space (offset
     by ``prov_idx * 101``) so a challenger can't get lucky by hitting
     the same favourable seed for every opponent type.
+
+    **Parallelism.** When ``workers > 1`` the per-game work is fanned
+    out across a :class:`concurrent.futures.ThreadPoolExecutor`. Every
+    game is independent — the engine has no module-level state, every
+    challenger / opponent / GameState / game RNG is built fresh per
+    call, and providers are read-only closures (see :func:`_run_task`).
+    Results are **bit-for-bit deterministic at any worker count**
+    given the same ``--seed``: per-game seeds derive only from the
+    loop indices (``seed_offset + prov_idx * 101 + chart_idx * 1000 +
+    game_idx``), and merging is integer counting which is commutative,
+    so completion order does not affect the final score.
+
+    **GIL caveat.** On stock CPython the game loop is bytecode-bound
+    Python and the GIL serialises execution, so threads give modest
+    speedup at best. On a free-threaded build (``python3.13t``) the
+    same code path achieves real parallelism with zero changes. The
+    ``workers <= 1`` branch keeps the original fully-sequential path
+    available for debugging and reproducibility checks (no pool
+    construction overhead, clean ``pdb`` sessions).
     """
     pop_size = len(population)
     games_per_provider = len(CHARTS) * games_per_chart
     total_games = games_per_provider * len(providers)
 
-    fitness_scores: list[float] = []
+    tasks: list[_GameTask] = []
     for i in range(pop_size):
-        total_wins = 0
-        for prov_idx, (_name, provider) in enumerate(providers):
-            slot = 0
+        for prov_idx in range(len(providers)):
             prov_offset = seed_offset + prov_idx * 101
             for chart_idx, chart in enumerate(CHARTS):
                 for game_idx in range(games_per_chart):
                     game_seed = prov_offset + chart_idx * 1000 + game_idx
-                    opponents = provider(slot, game_seed)
-                    slot += 1
-                    if _play_one_game(profile, population[i], opponents, chart, game_seed):
-                        total_wins += 1
-        fitness_scores.append(total_wins / total_games if total_games else 0.0)
-    return fitness_scores
+                    slot = chart_idx * games_per_chart + game_idx
+                    tasks.append(
+                        _GameTask(
+                            individual_idx=i,
+                            provider_idx=prov_idx,
+                            chart=chart,
+                            game_seed=game_seed,
+                            slot=slot,
+                        )
+                    )
+
+    wins_by_ind = [0] * pop_size
+
+    if workers <= 1:
+        # Sequential fallback: identical to the pre-multithread code
+        # path. Kept first-class so reproducibility checks and pdb
+        # sessions skip all pool overhead.
+        for task in tasks:
+            provider = providers[task.provider_idx][1]
+            if _run_task(
+                profile,
+                population[task.individual_idx],
+                provider,
+                task,
+            ):
+                wins_by_ind[task.individual_idx] += 1
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_task = {
+                executor.submit(
+                    _run_task,
+                    profile,
+                    population[task.individual_idx],
+                    providers[task.provider_idx][1],
+                    task,
+                ): task
+                for task in tasks
+            }
+            for future in as_completed(future_to_task):
+                task = future_to_task[future]
+                if future.result():
+                    wins_by_ind[task.individual_idx] += 1
+
+    return [w / total_games if total_games else 0.0 for w in wins_by_ind]
 
 
 def evaluate_against_multi(
@@ -233,31 +335,71 @@ def evaluate_against_multi(
     providers: list[tuple[str, OpponentProvider]],
     games_per_chart: int,
     seed_offset: int,
+    workers: int,
 ) -> tuple[float, dict[str, float]]:
     """Held-out eval of one challenger across all providers.
 
     Returns the pooled win rate plus a per-provider breakdown so the
     held-out re-eval can print "vs 3x Random = 88.0%" lines for the
     chosen winner.
+
+    Same multithreading model as :func:`evaluate_population_multi`:
+    sequential fallback when ``workers <= 1``, otherwise fan-out via
+    a :class:`concurrent.futures.ThreadPoolExecutor`. Determinism is
+    preserved for the same reasons (loop-derived seeds, commutative
+    integer merging).
     """
-    per_provider: dict[str, float] = {}
-    total_wins = 0
-    total_games = 0
-    for prov_idx, (name, provider) in enumerate(providers):
-        wins = 0
-        slot = 0
+    n_per_provider = len(CHARTS) * games_per_chart
+
+    tasks: list[_GameTask] = []
+    for prov_idx in range(len(providers)):
         prov_offset = seed_offset + prov_idx * 101
         for chart_idx, chart in enumerate(CHARTS):
             for game_idx in range(games_per_chart):
                 game_seed = prov_offset + chart_idx * 1000 + game_idx
-                opponents = provider(slot, game_seed)
-                slot += 1
-                if _play_one_game(profile, challenger, opponents, chart, game_seed):
-                    wins += 1
-        n = len(CHARTS) * games_per_chart
-        per_provider[name] = wins / n if n else 0.0
+                slot = chart_idx * games_per_chart + game_idx
+                tasks.append(
+                    _GameTask(
+                        individual_idx=0,
+                        provider_idx=prov_idx,
+                        chart=chart,
+                        game_seed=game_seed,
+                        slot=slot,
+                    )
+                )
+
+    wins_by_prov = [0] * len(providers)
+
+    if workers <= 1:
+        for task in tasks:
+            provider = providers[task.provider_idx][1]
+            if _run_task(profile, challenger, provider, task):
+                wins_by_prov[task.provider_idx] += 1
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_task = {
+                executor.submit(
+                    _run_task,
+                    profile,
+                    challenger,
+                    providers[task.provider_idx][1],
+                    task,
+                ): task
+                for task in tasks
+            }
+            for future in as_completed(future_to_task):
+                task = future_to_task[future]
+                if future.result():
+                    wins_by_prov[task.provider_idx] += 1
+
+    per_provider: dict[str, float] = {}
+    total_wins = 0
+    total_games = 0
+    for prov_idx, (name, _provider) in enumerate(providers):
+        wins = wins_by_prov[prov_idx]
+        per_provider[name] = wins / n_per_provider if n_per_provider else 0.0
         total_wins += wins
-        total_games += n
+        total_games += n_per_provider
     pooled = total_wins / total_games if total_games else 0.0
     return pooled, per_provider
 
@@ -274,6 +416,7 @@ def run_ga(
     games_per_chart: int,
     seed: int,
     num_players: int,
+    workers: int,
 ) -> GAResult:
     """Run one full GA tuning of ``profile`` under ``mode_key``.
 
@@ -361,6 +504,7 @@ def run_ga(
             providers=providers,
             games_per_chart=games_per_chart,
             seed_offset=seed_offset,
+            workers=workers,
         )
 
         best_idx = max(range(len(population)), key=lambda i: scores[i])
@@ -441,6 +585,7 @@ def run_ga(
                 providers=held_out_providers,
                 games_per_chart=held_out_games,
                 seed_offset=held_out_offset,
+                workers=workers,
             )
             held_out_scores.append(pooled)
             per_provider_breakdown.append(per_provider)
