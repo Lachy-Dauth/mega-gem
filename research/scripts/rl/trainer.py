@@ -27,10 +27,28 @@ Algorithm (one generation):
 8. Evaluate the updated ``θ`` on a held-out seed range for the
    training curve.
 
-Per-generation training seeds use the same formula as the GA:
-``(seed + gen + 1) * 9973``. Held-out θ-eval seeds use
-``(seed + gen + 1000) * 9973`` so the training-curve line in the plot
-is decorrelated from the gradient estimates.
+Unlike the GA — which rotates game seeds per generation — the ES
+trainer uses a **constant** seed slate for the whole run. Training
+seeds are ``(seed + 1) * 9973`` and held-out θ-eval seeds are
+``(seed + 1000) * 9973``, both fixed across every generation.
+
+This is the Salimans et al. 2017 convention, and it is not an
+implementation detail — it is load-bearing for the gradient
+estimator. The ES gradient ``g[k] = (1/(N·σ)) · Σᵢ Rᵢ·εᵢ[k]``
+implicitly assumes every perturbation's reward is drawn from the
+*same* distribution; rotating seeds between generations mixes "θ
+improved" with "games got easier/harder" and the optimizer chases
+seed noise. Constant seeds remove that confound — a reward
+improvement across generations is then *actually* an improvement
+on the same games, and the held-out curve becomes a clean
+"objective value at θ" rather than a randomized re-eval.
+
+The trade-off: θ can in principle overfit to the specific seed
+slate. In practice the 48 perturbations × ``games_per_chart`` × 5
+charts × ``len(providers)`` games per generation is a large enough
+effective sample that overfitting is not observed within a
+30-generation run. If a run does show drift, rerun with a larger
+``--games-per-chart`` or a different ``--seed``.
 """
 
 from __future__ import annotations
@@ -323,13 +341,17 @@ def run_es(
     n_pairs = population_size // 2
     ga_start = time.perf_counter()
 
+    # Constant seed slate across every generation — see module
+    # docstring. ES wants the gradient estimator to compare
+    # perturbations on the *same* games, not on a fresh seed slice
+    # each generation, otherwise "θ improved" gets confounded with
+    # "games got easier". These two offsets therefore do NOT depend
+    # on ``gen``.
+    train_offset = (seed + 1) * 9973
+    holdout_offset = (seed + 1000) * 9973
+
     for gen_offset in range(generations):
         gen = start_gen + gen_offset
-
-        # Per-generation seed rotation — same formula as the GA so
-        # side-by-side comparisons are on comparable seed offsets.
-        train_offset = (seed + gen + 1) * 9973
-        holdout_offset = (seed + gen + 1000) * 9973
 
         # Rebuild providers each generation for self_play (population
         # changes). For the other modes this is cheap and symmetric.

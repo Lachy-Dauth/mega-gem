@@ -861,10 +861,32 @@ One generation of `run_es`:
 8. Held-out θ-eval on a decorrelated seed range for the plotted
    training curve.
 
-Per-generation seed rotation uses the **same formula as the GA**:
-`seed_offset = (seed + gen + 1) * 9973`. The held-out θ-eval uses
-`(seed + gen + 1000) * 9973` so the plotted curve is decorrelated
-from the seeds the gradient estimate saw.
+**Constant seeds across generations.** Unlike the GA — which
+rotates game seeds every generation to sample a fresh slice of the
+seed distribution — the ES trainer uses a *fixed* seed slate for
+the whole run: training seeds are `(seed + 1) * 9973`, held-out
+θ-eval seeds are `(seed + 1000) * 9973`, both constant for every
+generation.
+
+This is deliberate and load-bearing, not a simplification. The ES
+gradient estimate `g[k] = (1/(N·σ)) · Σᵢ Rᵢ · εᵢ[k]` implicitly
+assumes every perturbation's reward is drawn from the *same*
+distribution. If generation N evaluates θ on one seed batch and
+generation N+1 evaluates θ+step on a different batch, the gradient
+mixes "did θ improve?" with "did the games get harder?" and the
+optimizer spends much of its budget chasing seed noise. Constant
+seeds remove that confound — a reward improvement across
+generations is *actually* an improvement on the same games, and
+the held-out training curve becomes a clean "objective value at
+θ" line rather than a randomized re-eval. The Salimans et al.
+2017 paper's reference implementation uses the same trick.
+
+The trade-off is that θ can in principle overfit to the fixed
+seed slate. In practice the `population × games_per_chart × 5
+charts × len(providers)` games per generation is a large enough
+effective sample size that overfitting isn't observed within a
+30-gen run. If you see drift, bump `--games-per-chart` or try a
+different `--seed`.
 
 ### How it differs from the GA
 
