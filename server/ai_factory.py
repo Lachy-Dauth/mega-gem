@@ -46,7 +46,14 @@ def _load_weights(candidates: list[str]) -> list[float] | None:
 
 
 def _evolved_factory(name: str, *, seed: int, num_players: int) -> Player:
+    # Lookup chain mirrors megagem.__main__._evolved_factory but with
+    # the soft fallback retained — the server should never crash when
+    # weights are missing.
     weights = _load_weights([
+        f"best_weights_evo1_vs_all_{num_players}p.json",
+        f"best_weights_evo1_vs_heuristic_{num_players}p.json",
+        f"best_weights_evo1_self_{num_players}p.json",
+        f"best_weights_evo1_{num_players}p.json",
         f"best_weights_{num_players}p.json",
         "best_weights.json",
     ])
@@ -60,9 +67,12 @@ def _evolved_factory(name: str, *, seed: int, num_players: int) -> Player:
 def _evo2_factory(name: str, *, seed: int, num_players: int) -> Player:
     weights = _load_weights([
         f"best_weights_evo2_vs_all_{num_players}p.json",
+        f"best_weights_evo2_vs_evo1_{num_players}p.json",
+        f"best_weights_evo2_vs_evo3_{num_players}p.json",
+        f"best_weights_evo2_vs_evo4_{num_players}p.json",
+        f"best_weights_evo2_self_{num_players}p.json",
         f"best_weights_evo2_vs_old_evo2_{num_players}p.json",
         f"best_weights_evo2_vs_old_{num_players}p.json",
-        f"best_weights_evo2_self_{num_players}p.json",
         f"best_weights_evo2_{num_players}p.json",
         "best_weights_evo2.json",
     ])
@@ -74,7 +84,9 @@ def _evo2_factory(name: str, *, seed: int, num_players: int) -> Player:
 def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
     weights = _load_weights([
         f"best_weights_evo3_vs_all_{num_players}p.json",
+        f"best_weights_evo3_vs_evo1_{num_players}p.json",
         f"best_weights_evo3_vs_evo2_{num_players}p.json",
+        f"best_weights_evo3_vs_evo4_{num_players}p.json",
         f"best_weights_evo3_self_{num_players}p.json",
         f"best_weights_evo3_{num_players}p.json",
         "best_weights_evo3.json",
@@ -87,6 +99,8 @@ def _evo3_factory(name: str, *, seed: int, num_players: int) -> Player:
 def _evo4_factory(name: str, *, seed: int, num_players: int) -> Player:
     weights = _load_weights([
         f"best_weights_evo4_vs_all_{num_players}p.json",
+        f"best_weights_evo4_vs_evo1_{num_players}p.json",
+        f"best_weights_evo4_vs_evo2_{num_players}p.json",
         f"best_weights_evo4_vs_evo3_{num_players}p.json",
         f"best_weights_evo4_self_{num_players}p.json",
         f"best_weights_evo4_{num_players}p.json",
