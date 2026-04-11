@@ -18,6 +18,7 @@ from megagem.engine import is_game_over, play_round, score_game, setup_game
 from megagem.players import (
     Evo2AI,
     Evo3AI,
+    Evo4AI,
     HeuristicAI,
     HyperAdaptiveSplitAI,
     RandomAI,
@@ -73,6 +74,12 @@ def make_factories() -> dict:
         factories["Evo3"] = lambda name, seed: Evo3AI.from_weights(name, evo3, seed=seed)
     else:
         factories["Evo3"] = lambda name, seed: Evo3AI(name, seed=seed)
+
+    evo4 = _load_evo_weights("evo4")
+    if evo4 is not None:
+        factories["Evo4"] = lambda name, seed: Evo4AI.from_weights(name, evo4, seed=seed)
+    else:
+        factories["Evo4"] = lambda name, seed: Evo4AI(name, seed=seed)
 
     return factories
 
