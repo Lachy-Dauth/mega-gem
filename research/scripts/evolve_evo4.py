@@ -1,4 +1,15 @@
-"""Genetic-algorithm tuner for ``Evo4AI``'s 26 weights.
+"""Genetic-algorithm tuner for ``Evo4AI``'s 35 weights.
+
+The genome is laid out as::
+
+    [treasure(11), invest(8), loan(8),
+     color_bias_influence(1), internal_evo2_treasure(7)]
+
+The trailing 7-weight block is the **internal opponent-bid predictor**
+— an Evo2-style treasure head that Evo4 runs from each opponent's POV
+to populate its ``opp_max`` / ``opp_avg`` features. Those 7 weights
+live in the flat genome alongside the outer heads so the GA tunes the
+opponent model and the Evo4 response to it jointly.
 
 Run from the project root::
 
@@ -415,7 +426,7 @@ def evaluate_against_fixed_provider(
 # --- GA primitives ----------------------------------------------------------
 
 
-GENOME_LEN = Evo4AI.NUM_WEIGHTS  # 26
+GENOME_LEN = Evo4AI.NUM_WEIGHTS  # 35
 
 # Matches scripts.evolve_evo3 so differences in result are attributable to
 # the feature set, not to GA hyperparameters.
@@ -427,11 +438,16 @@ TOURNAMENT_SIZE = 3
 ELITES = 2
 
 # Seed individual #0 with Evo4AI's class defaults — the Evo3 weights
-# extended with a zero ``color_bias_influence``. Laid out in flat-vector
-# form: treasure(9), invest(8), loan(8), color_bias(1).
+# extended with zero ``w_opp_max`` / ``w_opp_avg`` on the treasure
+# head, zero ``color_bias_influence``, and the Evo2 class defaults
+# for the internal opponent-bid predictor. Layout matches
+# ``Evo4AI.from_weights``::
+#
+#     treasure(11), invest(8), loan(8),
+#     color_bias(1), internal_evo2_treasure(7)
 DEFAULT_SEED = [
     # treasure: bias, w_rounds, w_my, w_avg, w_top, w_ev, w_std,
-    #           w_mean_delta, w_std_delta
+    #           w_mean_delta, w_std_delta, w_opp_max, w_opp_avg
     0.9671062444221764,
     -0.0906995616980441,
     0.07804979550128198,
@@ -439,6 +455,8 @@ DEFAULT_SEED = [
     -0.04247465810129918,
     0.32783828473034604,
     -0.011838494331700117,
+    0.0,
+    0.0,
     0.0,
     0.0,
     # invest: bias, w_rounds, w_my, w_avg, w_top, w_amount,
@@ -463,6 +481,19 @@ DEFAULT_SEED = [
     0.0,
     # color_bias_influence — zero so Evo4 starts as Evo3.
     0.0,
+    # internal_evo2_treasure: bias, w_rounds, w_my, w_avg, w_top, w_ev, w_std
+    # Seeded from Evo2.DEFAULT_TREASURE. The outer head's
+    # w_opp_max / w_opp_avg are zero so the actual bid ignores this
+    # block at startup — the GA has to earn the opponent-prediction
+    # feature by simultaneously nudging an outer weight off zero and
+    # discovering a useful internal-predictor shape.
+    0.9671062444221764,
+    -0.0906995616980441,
+    0.07804979550128198,
+    0.05375147152736104,
+    -0.04247465810129918,
+    0.32783828473034604,
+    -0.011838494331700117,
 ]
 
 
@@ -758,20 +789,22 @@ def print_paste_ready(weights: list[float]) -> None:
     if not weights:
         print("(no weights — GA produced no result)")
         return
-    t = weights[0:9]
-    i = weights[9:17]
-    l = weights[17:25]
-    color_bias = weights[25]
+    t = weights[0:11]
+    i = weights[11:19]
+    l = weights[19:27]
+    color_bias = weights[27]
+    internal = weights[28:35]
 
     def fmt(block: list[float]) -> str:
         return ", ".join(f"{w:+.4f}" for w in block)
 
     print()
     print("Evolved weights (paste into Evo4AI):")
-    print(f"    DEFAULT_TREASURE = _Evo3TreasureModel({fmt(t)})")
+    print(f"    DEFAULT_TREASURE = _Evo4TreasureModel({fmt(t)})")
     print(f"    DEFAULT_INVEST   = _Evo3InvestModel({fmt(i)})")
     print(f"    DEFAULT_LOAN     = _Evo3LoanModel({fmt(l)})")
     print(f"    DEFAULT_COLOR_BIAS_INFLUENCE = {color_bias:+.4f}")
+    print(f"    DEFAULT_INTERNAL_EVO2_TREASURE = _Evo2TreasureModel({fmt(internal)})")
 
 
 # --- CLI -------------------------------------------------------------------

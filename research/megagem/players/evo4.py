@@ -1,48 +1,55 @@
-"""Evo4AI — Evo3 with bid-signal-driven gem distribution adjustment.
+"""Evo4AI — Evo3 with bid-signal gem inference AND opponent-bid prediction.
 
-Identical to :class:`Evo3AI` except for one new idea: Evo4 watches how
-much opponents bid on *treasures* versus its own baseline-delta bid, and
-attributes any excess to the colors of the gems that were on offer. A
-persistent per-color ``_color_signal`` dictionary accumulates that
-evidence ("opponents consistently bid above expectation on treasures
-containing Blue → they probably already hold Blue gems in hand → the
-final value display will skew toward Blue"). When Evo4 evaluates a
-pending treasure, it pushes the hypergeometric chart-index expectation
-for each color by ``color_bias_influence × color_signal[color]`` before
-the treasure-value chart lookup.
+Identical to :class:`Evo3AI` on every head except treasure. The treasure
+head gains two new ideas, both tuneable by the GA:
 
-The spec in the user's own words: "if two people bet 8 for treasure and
-one bets 5 you can assume the two have a gem of that colour". The
-implementation below is a cheap running sum of the top-opponent delta
-attributed across the treasure's gems — not a full Bayesian posterior,
-but enough signal for the GA to find a useful influence.
+1. **Per-color signal.** Evo4 watches how much opponents bid on
+   *treasures* versus its own baseline bid, and attributes any excess to
+   the colors of the gems that were on offer. A persistent per-color
+   ``_color_signal`` dictionary accumulates that evidence ("opponents
+   consistently bid above expectation on treasures containing Blue →
+   they probably already hold Blue gems in hand → the final value
+   display will skew toward Blue"). When Evo4 evaluates a pending
+   treasure, it pushes the hypergeometric chart-index expectation for
+   each color by ``color_bias_influence × color_signal[color]`` before
+   the treasure-value chart lookup. Spec in the user's own words: "if
+   two people bet 8 for treasure and one bets 5 you can assume the two
+   have a gem of that colour".
 
-The mechanism changes only two things relative to Evo3:
+2. **Opponent-bid prediction.** For every seat that isn't us, Evo4 runs
+   a small internal Evo2-style treasure head from that seat's POV — its
+   own coins become ``my_coins``, everyone else (including us) becomes
+   the ``avg_opp_coins`` / ``top_opp_coins`` bucket — feeding in the
+   same ``(ev, std)`` we computed for the treasure as a proxy for
+   their estimate. Taking ``max`` and ``mean`` across the per-opponent
+   predicted bids gives two new features, ``opp_max`` and ``opp_avg``,
+   that the treasure head can weight via ``w_opp_max`` / ``w_opp_avg``.
+   **The internal-predictor weights are themselves evolvable** (they
+   live in the flat weights vector and the GA tunes them alongside the
+   outer-head weights), so the GA gets to decide how to model
+   opponents rather than inheriting a fixed Evo2 snapshot.
 
-1. :meth:`observe_round` additionally updates ``_color_signal`` on
-   treasure rounds. The delta used is the same ``max_opp_bid − baseline``
-   already computed for the Evo3 opp-delta history, so the extra state
-   costs nothing but one dict update per round.
+Weight layout (flat 35-element vector, the form the GA produces)::
 
-2. :meth:`choose_bid` on a :class:`TreasureCard` runs the treasure-value
-   helper with a per-color index shift. With a zero ``color_bias_influence``
-   the shift is identically zero for every color and Evo4 falls back to
-   Evo3 behaviour exactly, so the class defaults reproduce Evo3 until the
-   GA lights up the new weight.
+    treasure             (11): bias, w_rounds, w_my, w_avg, w_top,
+                               w_ev, w_std, w_mean_delta, w_std_delta,
+                               w_opp_max, w_opp_avg
+    invest                (8): bias, w_rounds, w_my, w_avg, w_top,
+                               w_amount, w_mean_delta, w_std_delta
+    loan                  (8): bias, w_rounds, w_my, w_avg, w_top,
+                               w_amount, w_mean_delta, w_std_delta
+    color_bias_influence  (1): scalar, scales the per-color index shift
+    internal_evo2_treasure(7): bias, w_rounds, w_my, w_avg, w_top,
+                               w_ev, w_std — Evo2-style head used per
+                               opponent seat to predict their bid
 
-Weight layout (flat 26-element vector, the form the GA produces)::
-
-    treasure (9): bias, w_rounds, w_my, w_avg, w_top, w_ev, w_std,
-                  w_mean_delta, w_std_delta
-    invest   (8): bias, w_rounds, w_my, w_avg, w_top, w_amount,
-                  w_mean_delta, w_std_delta
-    loan     (8): bias, w_rounds, w_my, w_avg, w_top, w_amount,
-                  w_mean_delta, w_std_delta
-    bias     (1): color_bias_influence scalar
-
-Seed defaults are the Evo3 class defaults + ``color_bias_influence=0``,
-so Evo4 starts as an Evo3 clone and only diverges once the GA nudges
-the final weight off zero.
+Seed defaults are the Evo3 class defaults with zeros for
+``w_opp_max`` / ``w_opp_avg`` / ``color_bias_influence``, and the
+Evo2 class defaults for the internal predictor. A freshly constructed
+Evo4AI with these defaults reproduces Evo3 behaviour exactly until
+the GA lights up any of the new weights — ``opp_max`` / ``opp_avg``
+are multiplied by zero, ``color_bias_influence`` is zero, so none of
+the new features can leak into the bid.
 """
 
 from __future__ import annotations
@@ -65,7 +72,10 @@ from ..value_charts import value_for
 from .base import Player
 from .evo2 import (
     _compute_evo2_features,
+    _Evo2Features,
+    _expected_rounds_remaining,
     _mission_probability_delta,
+    _TreasureModel as _Evo2TreasureModel,
 )
 from .evo3 import (
     _CAT_INVEST,
@@ -191,6 +201,138 @@ def _treasure_value_stats_biased(
 
 
 # ---------------------------------------------------------------------------
+# Evo4 treasure head — Evo3 + 2 opponent-predicted-bid features.
+# ---------------------------------------------------------------------------
+
+
+class _Evo4TreasureModel(_Evo3TreasureModel):
+    """Evo3 treasure head + ``w_opp_max`` + ``w_opp_avg`` = 11 weights.
+
+    Structurally an extension of :class:`_Evo3TreasureModel`: inherits
+    the 9 Evo3 slots, appends two for the opponent-bid-prediction
+    aggregates. The ``bid`` method's signature grows by two trailing
+    scalars (``opp_max``, ``opp_avg``) and composes the parent's bid
+    with the new linear terms. With ``w_opp_max = w_opp_avg = 0`` this
+    is bit-for-bit a 9-weight Evo3 head, which is how the defaults
+    reproduce Evo3 behaviour.
+    """
+
+    __slots__ = ("w_opp_max", "w_opp_avg")
+
+    def __init__(
+        self,
+        bias: float,
+        w_rounds: float,
+        w_my: float,
+        w_avg: float,
+        w_top: float,
+        w_ev: float,
+        w_std: float,
+        w_mean_delta: float,
+        w_std_delta: float,
+        w_opp_max: float,
+        w_opp_avg: float,
+    ) -> None:
+        super().__init__(
+            bias,
+            w_rounds,
+            w_my,
+            w_avg,
+            w_top,
+            w_ev,
+            w_std,
+            w_mean_delta,
+            w_std_delta,
+        )
+        self.w_opp_max = w_opp_max
+        self.w_opp_avg = w_opp_avg
+
+    def bid(
+        self,
+        f: _Evo2Features,
+        ev: float,
+        std: float,
+        mean_delta: float,
+        std_delta: float,
+        opp_max: float = 0.0,
+        opp_avg: float = 0.0,
+    ) -> float:
+        return (
+            super().bid(f, ev, std, mean_delta, std_delta)
+            + self.w_opp_max * opp_max
+            + self.w_opp_avg * opp_avg
+        )
+
+
+# ---------------------------------------------------------------------------
+# Opponent-bid prediction: run an internal Evo2 head from each opponent's POV.
+# ---------------------------------------------------------------------------
+
+
+def _predict_opponent_treasure_bids(
+    auction: TreasureCard,
+    state: "GameState",
+    my_state: "PlayerState",
+    ev: float,
+    std: float,
+    rounds_remaining: float,
+    internal_model: _Evo2TreasureModel,
+) -> tuple[float, float]:
+    """``(max, avg)`` of predicted opponent bids for this treasure.
+
+    For each opponent seat, builds an ``_Evo2Features`` *from their
+    POV* — their own coins become ``my_coins``, the remaining seats
+    (including us) form the ``avg_opp_coins`` / ``top_opp_coins``
+    bucket — runs ``internal_model.bid(...)`` on it, clamps to their
+    own legal cap, and returns the max and mean across the predicted
+    bids. Returns ``(0.0, 0.0)`` when there are no opponents.
+
+    **EV/std are reused from our own computation** as a proxy for the
+    opponent's estimate. Strictly, each opponent sees a different
+    hypergeometric hidden distribution (they know their own hand,
+    which is hidden from us), but recomputing a full per-opponent
+    distribution inside every bid is too expensive and the treasure
+    EV is dominated by public signals (the value chart and revealed
+    gems) anyway. The GA can learn whatever systematic correction is
+    needed via the internal model's bias / ev / std weights.
+
+    ``rounds_remaining`` is passed in rather than recomputed because
+    it's a pure state function — the same number for every seat — and
+    the outer ``choose_bid`` has already computed it once.
+    """
+    n = len(state.player_states)
+    if n <= 1:
+        return 0.0, 0.0
+
+    coins = [ps.coins for ps in state.player_states]
+    predicted: list[float] = []
+    for i, opp_state in enumerate(state.player_states):
+        if opp_state is my_state:
+            continue
+        # Features from seat i's POV: their coins vs everyone else's.
+        others_coins = [coins[j] for j in range(n) if j != i]
+        if not others_coins:
+            continue
+        f_opp = _Evo2Features(
+            rounds_remaining=rounds_remaining,
+            my_coins=float(coins[i]),
+            avg_opp_coins=sum(others_coins) / len(others_coins),
+            top_opp_coins=float(max(others_coins)),
+        )
+        raw = internal_model.bid(f_opp, ev, std)
+        # Cap: treasures can't be paid with a loan, so the opponent's
+        # legal cap is exactly their coin pile. Route through
+        # ``max_legal_bid`` anyway so any future cap changes in the
+        # engine propagate automatically.
+        cap = max_legal_bid(opp_state, auction)
+        predicted.append(max(0.0, min(float(raw), float(cap))))
+
+    if not predicted:
+        return 0.0, 0.0
+    return max(predicted), sum(predicted) / len(predicted)
+
+
+# ---------------------------------------------------------------------------
 # Evo4AI itself.
 # ---------------------------------------------------------------------------
 
@@ -227,14 +369,17 @@ class Evo4AI(Player):
     per-opponent breakdown matters, that's a future-Evo5 problem.
     """
 
-    NUM_WEIGHTS = 26  # 25 Evo3 weights + 1 color_bias_influence scalar
+    NUM_WEIGHTS = 35
+    # Layout: 11 treasure + 8 invest + 8 loan + 1 color_bias + 7 internal.
 
-    # Seed defaults = Evo3 class defaults with zero color_bias_influence.
-    # On the first round of any game (empty history → zero signal →
-    # zero shift) an Evo4AI with these defaults is bit-for-bit
-    # identical to the default Evo3AI, which in turn is identical to
-    # default Evo2. Keeps the head-to-head smoke test baseline honest.
-    DEFAULT_TREASURE = _Evo3TreasureModel(
+    # Seed defaults = Evo3 class defaults with zeros for the two new
+    # treasure-head weights (``w_opp_max``, ``w_opp_avg``) and
+    # ``color_bias_influence``, plus the Evo2 class defaults for the
+    # internal opponent-predictor head. Freshly constructed Evo4AI
+    # with these defaults is bit-for-bit identical to the default
+    # Evo3AI, which in turn is identical to default Evo2 — the new
+    # features are all multiplied by a zero weight.
+    DEFAULT_TREASURE = _Evo4TreasureModel(
         bias=0.9671062444221764,
         w_rounds=-0.0906995616980441,
         w_my=0.07804979550128198,
@@ -244,6 +389,8 @@ class Evo4AI(Player):
         w_std=-0.011838494331700117,
         w_mean_delta=0.0,
         w_std_delta=0.0,
+        w_opp_max=0.0,
+        w_opp_avg=0.0,
     )
     DEFAULT_INVEST = _Evo3InvestModel(
         bias=1.908464547879478,
@@ -266,15 +413,28 @@ class Evo4AI(Player):
         w_std_delta=0.0,
     )
     DEFAULT_COLOR_BIAS_INFLUENCE = 0.0
+    # Internal opponent-bid predictor: start from Evo2's own class
+    # defaults (the GA-tuned ones baked into Evo2AI). These are the
+    # "most plausible opponent" until the GA decides otherwise.
+    DEFAULT_INTERNAL_EVO2_TREASURE = _Evo2TreasureModel(
+        bias=0.9671062444221764,
+        w_rounds=-0.0906995616980441,
+        w_my=0.07804979550128198,
+        w_avg=0.05375147152736104,
+        w_top=-0.04247465810129918,
+        w_ev=0.32783828473034604,
+        w_std=-0.011838494331700117,
+    )
 
     def __init__(
         self,
         name: str,
         *,
-        treasure: _Evo3TreasureModel | None = None,
+        treasure: _Evo4TreasureModel | None = None,
         invest: _Evo3InvestModel | None = None,
         loan: _Evo3LoanModel | None = None,
         color_bias_influence: float | None = None,
+        internal_evo2_treasure: _Evo2TreasureModel | None = None,
         seed: int | None = None,
     ) -> None:
         super().__init__(name)
@@ -290,6 +450,11 @@ class Evo4AI(Player):
             color_bias_influence
             if color_bias_influence is not None
             else self.DEFAULT_COLOR_BIAS_INFLUENCE
+        )
+        self.internal_evo2_treasure = (
+            internal_evo2_treasure
+            if internal_evo2_treasure is not None
+            else self.DEFAULT_INTERNAL_EVO2_TREASURE
         )
         # Evo3-style opp-delta history (category, max_opp_bid − baseline).
         self._opp_history: list[tuple[str, float]] = []
@@ -312,9 +477,12 @@ class Evo4AI(Player):
         *,
         seed: int | None = None,
     ) -> "Evo4AI":
-        """Build from a flat 26-element weights list.
+        """Build from a flat 35-element weights list.
 
-        Layout: ``[treasure(9), invest(8), loan(8), color_bias(1)]``.
+        Layout::
+
+            [treasure(11), invest(8), loan(8),
+             color_bias(1), internal_evo2_treasure(7)]
         """
         if len(weights) != cls.NUM_WEIGHTS:
             raise ValueError(
@@ -322,10 +490,11 @@ class Evo4AI(Player):
             )
         return cls(
             name,
-            treasure=_Evo3TreasureModel(*weights[0:9]),
-            invest=_Evo3InvestModel(*weights[9:17]),
-            loan=_Evo3LoanModel(*weights[17:25]),
-            color_bias_influence=weights[25],
+            treasure=_Evo4TreasureModel(*weights[0:11]),
+            invest=_Evo3InvestModel(*weights[11:19]),
+            loan=_Evo3LoanModel(*weights[19:27]),
+            color_bias_influence=weights[27],
+            internal_evo2_treasure=_Evo2TreasureModel(*weights[28:35]),
             seed=seed,
         )
 
@@ -417,12 +586,36 @@ class Evo4AI(Player):
             else:
                 ev_default, std_default = ev_biased, std_biased
 
+            # Opponent-bid prediction: per-seat internal Evo2 head.
+            # Uses the zero-shift (unbiased) EV/std so our private
+            # color-signal beliefs don't leak into what we think
+            # opponents think. Computed once and used for both the
+            # actual bid and the baseline — it's a current-state
+            # feature, not a history feature, so stripping it from
+            # the baseline would misrepresent "what I'd bid without
+            # delta history".
+            opp_max, opp_avg = _predict_opponent_treasure_bids(
+                auction,
+                public_state,
+                my_state,
+                ev_default,
+                std_default,
+                f.rounds_remaining,
+                self.internal_evo2_treasure,
+            )
+
             mean_delta, std_delta = _weighted_delta_stats(
                 self._opp_history, _CAT_TREASURE
             )
 
             actual_raw = self.treasure_model.bid(
-                f, ev_biased, std_biased, mean_delta, std_delta
+                f,
+                ev_biased,
+                std_biased,
+                mean_delta,
+                std_delta,
+                opp_max,
+                opp_avg,
             )
             default_raw = self.treasure_model.bid(
                 f,
@@ -430,6 +623,8 @@ class Evo4AI(Player):
                 std_default,
                 _DEFAULT_MEAN_DELTA,
                 _DEFAULT_STD_DELTA,
+                opp_max,
+                opp_avg,
             )
             actual_bid = max(0, min(int(actual_raw), cap))
             self._last_default_bid = max(0, min(int(default_raw), cap))
@@ -499,16 +694,37 @@ class Evo4AI(Player):
         shift = self._color_index_shift()
         treasure_ev = 0.0
         treasure_std = 0.0
+        opp_max = 0.0
+        opp_avg = 0.0
         if isinstance(auction, TreasureCard):
             treasure_ev, treasure_std = _treasure_value_stats_biased(
                 auction, public_state, my_state, shift
+            )
+            # Zero-shift EV/std used for opponent prediction, matching
+            # choose_bid exactly.
+            if any(v != 0.0 for v in shift.values()):
+                ev_default, std_default = _treasure_value_stats_biased(
+                    auction, public_state, my_state, {}
+                )
+            else:
+                ev_default, std_default = treasure_ev, treasure_std
+            opp_max, opp_avg = _predict_opponent_treasure_bids(
+                auction,
+                public_state,
+                my_state,
+                ev_default,
+                std_default,
+                f.rounds_remaining,
+                self.internal_evo2_treasure,
             )
 
         t_md, t_sd = _weighted_delta_stats(self._opp_history, _CAT_TREASURE)
         i_md, i_sd = _weighted_delta_stats(self._opp_history, _CAT_INVEST)
         l_md, l_sd = _weighted_delta_stats(self._opp_history, _CAT_LOAN)
 
-        tb = self.treasure_model.bid(f, treasure_ev, treasure_std, t_md, t_sd)
+        tb = self.treasure_model.bid(
+            f, treasure_ev, treasure_std, t_md, t_sd, opp_max, opp_avg
+        )
         ib = self.invest_model.bid(f, invest_amount, i_md, i_sd)
         lb = self.loan_model.bid(f, loan_amount, l_md, l_sd)
 
@@ -542,7 +758,8 @@ class Evo4AI(Player):
         ]
         if isinstance(auction, TreasureCard):
             lines.append(
-                f"treasure:  ev={treasure_ev:.1f}  std={treasure_std:.2f}"
+                f"treasure:  ev={treasure_ev:.1f}  std={treasure_std:.2f}  "
+                f"opp_max={opp_max:.1f}  opp_avg={opp_avg:.1f}"
             )
         return lines
 

@@ -32,18 +32,19 @@ import unittest
 from megagem.cards import Color, GemCard, InvestCard, LoanCard, TreasureCard
 from megagem.engine import is_game_over, play_round, score_game, setup_game
 from megagem.players import Evo3AI, Evo4AI, RandomAI
-from megagem.players.evo2 import _per_color_value_stats
+from megagem.players.evo2 import _per_color_value_stats, _TreasureModel
 from megagem.players.evo3 import (
     _CAT_INVEST,
     _CAT_LOAN,
     _CAT_TREASURE,
     _Evo3InvestModel,
     _Evo3LoanModel,
-    _Evo3TreasureModel,
 )
 from megagem.players.evo4 import (
     _biased_per_color_value_stats,
     _empty_color_signal,
+    _Evo4TreasureModel,
+    _predict_opponent_treasure_bids,
 )
 
 
@@ -256,43 +257,64 @@ class ObserveRoundColorSignalTest(unittest.TestCase):
 
 class FromWeightsTest(unittest.TestCase):
     def test_round_trip(self):
+        self.assertEqual(Evo4AI.NUM_WEIGHTS, 35)
         weights = [float(i) * 0.1 - 1.0 for i in range(Evo4AI.NUM_WEIGHTS)]
         ai = Evo4AI.from_weights("Test", weights)
 
+        # treasure: 11 weights (9 Evo3 + 2 new opp-bid features)
         t = ai.treasure_model
+        self.assertIsInstance(t, _Evo4TreasureModel)
         self.assertEqual(
             (
                 t.bias, t.w_rounds, t.w_my, t.w_avg, t.w_top,
                 t.w_ev, t.w_std, t.w_mean_delta, t.w_std_delta,
+                t.w_opp_max, t.w_opp_avg,
             ),
-            tuple(weights[0:9]),
+            tuple(weights[0:11]),
         )
 
+        # invest: 8 weights (unchanged from Evo3)
         i = ai.invest_model
         self.assertEqual(
             (
                 i.bias, i.w_rounds, i.w_my, i.w_avg, i.w_top,
                 i.w_amount, i.w_mean_delta, i.w_std_delta,
             ),
-            tuple(weights[9:17]),
+            tuple(weights[11:19]),
         )
 
+        # loan: 8 weights (unchanged from Evo3)
         l = ai.loan_model
         self.assertEqual(
             (
                 l.bias, l.w_rounds, l.w_my, l.w_avg, l.w_top,
                 l.w_amount, l.w_mean_delta, l.w_std_delta,
             ),
-            tuple(weights[17:25]),
+            tuple(weights[19:27]),
         )
 
-        self.assertEqual(ai.color_bias_influence, weights[25])
+        # color_bias: single scalar
+        self.assertEqual(ai.color_bias_influence, weights[27])
+
+        # internal_evo2_treasure: 7-weight Evo2 head
+        m = ai.internal_evo2_treasure
+        self.assertIsInstance(m, _TreasureModel)
+        self.assertEqual(
+            (
+                m.bias, m.w_rounds, m.w_my, m.w_avg,
+                m.w_top, m.w_ev, m.w_std,
+            ),
+            tuple(weights[28:35]),
+        )
 
     def test_wrong_length_raises(self):
         with self.assertRaises(ValueError):
-            Evo4AI.from_weights("Bad", [0.0] * 25)
+            Evo4AI.from_weights("Bad", [0.0] * 34)
         with self.assertRaises(ValueError):
-            Evo4AI.from_weights("Bad", [0.0] * 27)
+            Evo4AI.from_weights("Bad", [0.0] * 36)
+        # The old 26-weight layout is no longer valid.
+        with self.assertRaises(ValueError):
+            Evo4AI.from_weights("Bad", [0.0] * 26)
 
 
 # ----------------------------------------------------------------------------
@@ -334,7 +356,7 @@ class ColorBiasInfluenceMovesBidTest(unittest.TestCase):
         Blue to the top of the auction deck. The bid with the primed
         signal must be strictly higher than the same AI with a zero
         signal on the same game state."""
-        model = _Evo3TreasureModel(
+        model = _Evo4TreasureModel(
             bias=0.0,
             w_rounds=0.0,
             w_my=0.0,
@@ -344,6 +366,8 @@ class ColorBiasInfluenceMovesBidTest(unittest.TestCase):
             w_std=0.0,
             w_mean_delta=0.0,
             w_std_delta=0.0,
+            w_opp_max=0.0,
+            w_opp_avg=0.0,
         )
         ai = Evo4AI(
             "T",
@@ -388,6 +412,219 @@ class ColorBiasInfluenceMovesBidTest(unittest.TestCase):
         ai._color_signal[Color.BLUE] = 10.0
         bid_primed = ai.choose_bid(state, state.player_states[0], auction)
         self.assertEqual(bid_primed, bid_zero)
+
+
+# ----------------------------------------------------------------------------
+# Opponent-bid prediction helper
+# ----------------------------------------------------------------------------
+
+
+class PredictOpponentTreasureBidsTest(unittest.TestCase):
+    """The helper that runs an internal Evo2 head from each opponent's
+    POV. Targets: (a) ``(max, avg)`` are computed across opponents not
+    including us, (b) the cap is respected, (c) the internal model's
+    weights actually determine the output (i.e. swapping the model
+    moves the prediction)."""
+
+    def _make_state(self, seed: int = 7):
+        players = [
+            Evo4AI("E4", seed=seed),
+            RandomAI("R1", seed=seed + 1),
+            RandomAI("R2", seed=seed + 2),
+            RandomAI("R3", seed=seed + 3),
+        ]
+        state = setup_game(players, chart="A", seed=seed)
+        state.auction_deck.append(TreasureCard(1))
+        if not state.revealed_gems:
+            state.revealed_gems.append(GemCard(Color.BLUE))
+        return state, state.player_states[0], state.auction_deck[-1]
+
+    def test_constant_model_returns_its_constant(self):
+        """An internal model whose ``bid`` is ``bias + 0·features`` (so a
+        constant) must produce ``max = avg = min(bias, cap)`` once the
+        cap is above the constant for every seat."""
+        state, my_state, auction = self._make_state()
+        # bias=5, everything else 0 → every opponent's predicted raw
+        # bid is 5. Opponents all start with enough coins to cover 5.
+        constant = _TreasureModel(
+            bias=5.0,
+            w_rounds=0.0, w_my=0.0, w_avg=0.0, w_top=0.0,
+            w_ev=0.0, w_std=0.0,
+        )
+        opp_max, opp_avg = _predict_opponent_treasure_bids(
+            auction, state, my_state, ev=10.0, std=2.0,
+            rounds_remaining=12.0, internal_model=constant,
+        )
+        self.assertAlmostEqual(opp_max, 5.0, places=9)
+        self.assertAlmostEqual(opp_avg, 5.0, places=9)
+
+    def test_cap_clamps_prediction_to_opponent_coins(self):
+        """A model that predicts a bid far above any seat's coin pile
+        must saturate at each opponent's cap — so max ≤ max(opp coins)."""
+        state, my_state, auction = self._make_state()
+        high = _TreasureModel(
+            bias=9999.0,
+            w_rounds=0.0, w_my=0.0, w_avg=0.0, w_top=0.0,
+            w_ev=0.0, w_std=0.0,
+        )
+        opp_coins = [
+            ps.coins for ps in state.player_states if ps is not my_state
+        ]
+        opp_max, opp_avg = _predict_opponent_treasure_bids(
+            auction, state, my_state, ev=0.0, std=0.0,
+            rounds_remaining=10.0, internal_model=high,
+        )
+        # Every opponent saturates at their own coins.
+        self.assertAlmostEqual(opp_max, float(max(opp_coins)), places=9)
+        self.assertAlmostEqual(
+            opp_avg, sum(opp_coins) / len(opp_coins), places=9
+        )
+
+    def test_negative_bid_floor_is_zero(self):
+        """A model that would predict negative raw bids must clamp at
+        zero (we can't bid negative coins)."""
+        state, my_state, auction = self._make_state()
+        neg = _TreasureModel(
+            bias=-100.0,
+            w_rounds=0.0, w_my=0.0, w_avg=0.0, w_top=0.0,
+            w_ev=0.0, w_std=0.0,
+        )
+        opp_max, opp_avg = _predict_opponent_treasure_bids(
+            auction, state, my_state, ev=5.0, std=1.0,
+            rounds_remaining=10.0, internal_model=neg,
+        )
+        self.assertEqual(opp_max, 0.0)
+        self.assertEqual(opp_avg, 0.0)
+
+    def test_my_coins_feature_is_opponent_specific(self):
+        """The model's ``w_my`` coefficient operates on *the opponent's*
+        coins, not on ours. Constructing a model whose bid is exactly
+        ``my_coins`` and reading back ``opp_avg`` recovers the mean
+        opponent coin pile."""
+        state, my_state, auction = self._make_state(seed=17)
+        identity_mine = _TreasureModel(
+            bias=0.0,
+            w_rounds=0.0, w_my=1.0, w_avg=0.0, w_top=0.0,
+            w_ev=0.0, w_std=0.0,
+        )
+        opp_coins = [
+            ps.coins for ps in state.player_states if ps is not my_state
+        ]
+        opp_max, opp_avg = _predict_opponent_treasure_bids(
+            auction, state, my_state, ev=999.0, std=999.0,
+            rounds_remaining=10.0, internal_model=identity_mine,
+        )
+        # Each opponent's predicted bid is their own coins, capped by
+        # their cap (= their coins), so capped = coins. avg/max match.
+        self.assertAlmostEqual(
+            opp_avg, sum(opp_coins) / len(opp_coins), places=9
+        )
+        self.assertAlmostEqual(opp_max, float(max(opp_coins)), places=9)
+
+
+# ----------------------------------------------------------------------------
+# Internal predictor is wired into the treasure head output
+# ----------------------------------------------------------------------------
+
+
+class InternalPredictorAffectsBidTest(unittest.TestCase):
+    def test_w_opp_max_moves_bid_when_internal_predicts_more(self):
+        """Compose a treasure head where only ``w_opp_max`` is non-zero,
+        swap the internal predictor from a bias=0 constant to a bias=20
+        constant, and confirm the actual bid rises. This proves that
+        (a) the treasure head reads ``opp_max`` and (b) ``opp_max``
+        depends on the internal predictor's weights — so the GA can
+        move the bid via either the inner or outer head."""
+        base_head = _Evo4TreasureModel(
+            bias=0.0,
+            w_rounds=0.0, w_my=0.0, w_avg=0.0, w_top=0.0,
+            w_ev=0.0, w_std=0.0,
+            w_mean_delta=0.0, w_std_delta=0.0,
+            w_opp_max=1.0, w_opp_avg=0.0,
+        )
+        low_pred = _TreasureModel(
+            bias=0.0, w_rounds=0.0, w_my=0.0, w_avg=0.0,
+            w_top=0.0, w_ev=0.0, w_std=0.0,
+        )
+        high_pred = _TreasureModel(
+            bias=20.0, w_rounds=0.0, w_my=0.0, w_avg=0.0,
+            w_top=0.0, w_ev=0.0, w_std=0.0,
+        )
+
+        ai_low = Evo4AI(
+            "low",
+            treasure=base_head,
+            invest=_Evo3InvestModel(0, 0, 0, 0, 0, 0, 0, 0),
+            loan=_Evo3LoanModel(0, 0, 0, 0, 0, 0, 0, 0),
+            color_bias_influence=0.0,
+            internal_evo2_treasure=low_pred,
+        )
+        ai_high = Evo4AI(
+            "high",
+            treasure=base_head,
+            invest=_Evo3InvestModel(0, 0, 0, 0, 0, 0, 0, 0),
+            loan=_Evo3LoanModel(0, 0, 0, 0, 0, 0, 0, 0),
+            color_bias_influence=0.0,
+            internal_evo2_treasure=high_pred,
+        )
+
+        players = [ai_low, RandomAI("R1", seed=2),
+                   RandomAI("R2", seed=3), RandomAI("R3", seed=4)]
+        state = setup_game(players, chart="A", seed=11)
+        state.auction_deck.append(TreasureCard(1))
+        if not state.revealed_gems:
+            state.revealed_gems.append(GemCard(Color.BLUE))
+        auction = state.auction_deck[-1]
+
+        bid_low = ai_low.choose_bid(state, state.player_states[0], auction)
+        bid_high = ai_high.choose_bid(state, state.player_states[0], auction)
+        self.assertGreater(bid_high, bid_low)
+
+    def test_zero_opp_weights_ignores_internal_predictor(self):
+        """With ``w_opp_max = w_opp_avg = 0`` the outer head must ignore
+        the internal predictor entirely — swapping it from a bias=0 to
+        a bias=100 constant must not move the bid by a single coin."""
+        head = _Evo4TreasureModel(
+            bias=3.0,
+            w_rounds=0.0, w_my=0.0, w_avg=0.0, w_top=0.0,
+            w_ev=0.0, w_std=0.0,
+            w_mean_delta=0.0, w_std_delta=0.0,
+            w_opp_max=0.0, w_opp_avg=0.0,
+        )
+        pred_a = _TreasureModel(
+            bias=0.0, w_rounds=0.0, w_my=0.0, w_avg=0.0,
+            w_top=0.0, w_ev=0.0, w_std=0.0,
+        )
+        pred_b = _TreasureModel(
+            bias=100.0, w_rounds=0.0, w_my=0.0, w_avg=0.0,
+            w_top=0.0, w_ev=0.0, w_std=0.0,
+        )
+        ai_a = Evo4AI(
+            "a",
+            treasure=head,
+            invest=_Evo3InvestModel(0, 0, 0, 0, 0, 0, 0, 0),
+            loan=_Evo3LoanModel(0, 0, 0, 0, 0, 0, 0, 0),
+            internal_evo2_treasure=pred_a,
+        )
+        ai_b = Evo4AI(
+            "b",
+            treasure=head,
+            invest=_Evo3InvestModel(0, 0, 0, 0, 0, 0, 0, 0),
+            loan=_Evo3LoanModel(0, 0, 0, 0, 0, 0, 0, 0),
+            internal_evo2_treasure=pred_b,
+        )
+        players = [ai_a, RandomAI("R1", seed=2),
+                   RandomAI("R2", seed=3), RandomAI("R3", seed=4)]
+        state = setup_game(players, chart="A", seed=19)
+        state.auction_deck.append(TreasureCard(1))
+        if not state.revealed_gems:
+            state.revealed_gems.append(GemCard(Color.BLUE))
+        auction = state.auction_deck[-1]
+
+        self.assertEqual(
+            ai_a.choose_bid(state, state.player_states[0], auction),
+            ai_b.choose_bid(state, state.player_states[0], auction),
+        )
 
 
 # ----------------------------------------------------------------------------
