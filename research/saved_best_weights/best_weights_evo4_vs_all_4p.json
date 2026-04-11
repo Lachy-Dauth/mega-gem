@@ -1,6 +1,6 @@
 {
-  "fitness": 0.64875,
-  "generation": 29,
+  "fitness": 0.652,
+  "generation": 0,
   "weights": [
     1.0646957491259093,
     -0.34768617085501863,
@@ -39,9 +39,12 @@
     0.1537344606255347
   ],
   "ga_config": {
-    "population": 24,
-    "generations": 30,
-    "games_per_chart": 40,
+    "ai": "evo4",
+    "label": "Evo4AI",
+    "num_weights": 35,
+    "population": 4,
+    "generations": 1,
+    "games_per_chart": 2,
     "num_players": 4,
     "charts": "ABCDE",
     "seed": 0,

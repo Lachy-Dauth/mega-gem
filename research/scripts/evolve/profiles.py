@@ -84,7 +84,7 @@ AI_PROFILES: dict[str, AIProfile] = {
         label="Evo2AI",
         ai_class=Evo2AI,
         num_weights=Evo2AI.NUM_WEIGHTS,
-        mutation_sigma=0.05,
+        mutation_sigma=0.10,
         mutation_clip=5.0,
     ),
     "evo3": AIProfile(
@@ -92,7 +92,7 @@ AI_PROFILES: dict[str, AIProfile] = {
         label="Evo3AI",
         ai_class=Evo3AI,
         num_weights=Evo3AI.NUM_WEIGHTS,
-        mutation_sigma=0.05,
+        mutation_sigma=0.10,
         mutation_clip=5.0,
     ),
     "evo4": AIProfile(
@@ -100,7 +100,7 @@ AI_PROFILES: dict[str, AIProfile] = {
         label="Evo4AI",
         ai_class=Evo4AI,
         num_weights=Evo4AI.NUM_WEIGHTS,
-        mutation_sigma=0.05,
+        mutation_sigma=0.10,
         mutation_clip=5.0,
     ),
 }
