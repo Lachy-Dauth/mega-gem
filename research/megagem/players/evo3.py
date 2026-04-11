@@ -45,18 +45,16 @@ enough rounds have been observed.
 from __future__ import annotations
 
 import math
-import random
 from typing import TYPE_CHECKING
 
 from ..cards import (
     AuctionCard,
-    GemCard,
     InvestCard,
     LoanCard,
     TreasureCard,
 )
 from ..engine import max_legal_bid
-from .base import Player
+from .base_evo import BaseEvoAI
 from .evo2 import (
     _compute_evo2_features,
     _Evo2Features,
@@ -303,7 +301,7 @@ class _Evo3LoanModel:
 # ---------------------------------------------------------------------------
 
 
-class Evo3AI(Player):
+class Evo3AI(BaseEvoAI):
     """Evo2 with opponent-pricing awareness.
 
     Per-round lifecycle:
@@ -373,8 +371,7 @@ class Evo3AI(Player):
         loan: _Evo3LoanModel | None = None,
         seed: int | None = None,
     ) -> None:
-        super().__init__(name)
-        self._rng = random.Random(seed)
+        super().__init__(name, seed=seed)
         self.treasure_model = (
             treasure if treasure is not None else self.DEFAULT_TREASURE
         )
@@ -382,18 +379,12 @@ class Evo3AI(Player):
             invest if invest is not None else self.DEFAULT_INVEST
         )
         self.loan_model = loan if loan is not None else self.DEFAULT_LOAN
-        # Log of (category, max_opp_bid − baseline_bid) for every round
-        # this instance has observed, where ``baseline_bid`` is what
-        # choose_bid would have output using the default delta values
-        # ``(0.0, 1.0)``. Grows by one entry per call to observe_round,
-        # which the engine invokes once per round per player.
-        self._opp_history: list[tuple[str, float]] = []
-        # Scratch cache populated at the end of choose_bid: the
-        # default-deltas ("baseline") bid, clamped identically to the
-        # actual returned bid. observe_round reads and clears it so a
-        # stale value from a previous round can't leak into the next
-        # observation. None when no baseline has been cached yet.
-        self._last_default_bid: int | None = None
+        # ``self._opp_history`` (log of ``(category, max_opp_bid
+        # − baseline_bid)`` per round) and ``self._last_default_bid``
+        # (scratch cache populated at the end of choose_bid with the
+        # default-deltas baseline bid) are initialized by
+        # :class:`BaseEvoAI`. ``observe_round`` below reads and clears
+        # the cache so a stale value can't leak across rounds.
 
     @classmethod
     def from_weights(
@@ -604,44 +595,3 @@ class Evo3AI(Player):
                 f"treasure:  ev={treasure_ev:.1f}  std={treasure_std:.2f}"
             )
         return lines
-
-    # ------------------------------------------------------------------
-    # Reveal policy — a direct copy of Evo2AI.choose_gem_to_reveal,
-    # which in turn copies HeuristicAI. Kept inline so this file has no
-    # behavioural dependency on the Evo2 reveal logic (even though it
-    # happens to be identical today).
-    # ------------------------------------------------------------------
-    def choose_gem_to_reveal(
-        self,
-        public_state: "GameState",
-        my_state: "PlayerState",
-    ) -> GemCard:
-        from collections import Counter
-
-        from ..value_charts import value_for
-
-        chart = public_state.value_chart
-        display = public_state.value_display
-
-        my_holding = my_state.collection_gems
-        opp_holding: Counter = Counter()
-        for ps in public_state.player_states:
-            if ps is my_state:
-                continue
-            opp_holding.update(ps.collection_gems)
-
-        best_score: tuple[int, int] | None = None
-        best_card: GemCard | None = None
-        for card in my_state.hand:
-            color = card.color
-            current = display.get(color, 0)
-            delta = value_for(chart, current + 1) - value_for(chart, current)
-            relative = my_holding.get(color, 0) - opp_holding.get(color, 0)
-            net_benefit = delta * relative
-            tiebreaker = -my_holding.get(color, 0)
-            score = (net_benefit, tiebreaker)
-            if best_score is None or score > best_score:
-                best_score = score
-                best_card = card
-
-        return best_card if best_card is not None else my_state.hand[0]

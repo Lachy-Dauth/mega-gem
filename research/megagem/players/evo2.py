@@ -38,7 +38,6 @@ are kept and the delta is added on top.
 from __future__ import annotations
 
 import math
-import random
 from collections import Counter
 from functools import lru_cache
 from itertools import combinations_with_replacement
@@ -47,7 +46,6 @@ from typing import TYPE_CHECKING
 from ..cards import (
     AuctionCard,
     Color,
-    GemCard,
     InvestCard,
     LoanCard,
     TreasureCard,
@@ -55,7 +53,7 @@ from ..cards import (
 from ..engine import max_legal_bid
 from ..missions import MissionCard
 from ..value_charts import value_for
-from .base import Player
+from .base_evo import BaseEvoAI
 from .helpers import (
     _GEMS_PER_COLOR,
     _hyper_hidden_distribution,
@@ -647,13 +645,15 @@ class _LoanModel:
 # ---------------------------------------------------------------------------
 
 
-class Evo2AI(Player):
+class Evo2AI(BaseEvoAI):
     """Clean-slate evolved AI. See module docstring for design notes.
 
-    Subclasses ``Player`` directly (not ``HyperAdaptiveSplitAI``) so the
-    inherited reserve / discount-feature plumbing doesn't bleed in. The
-    reveal logic is a direct copy of ``HeuristicAI.choose_gem_to_reveal``
-    — the user's redesign is purely about bidding.
+    Subclasses :class:`BaseEvoAI` (the shared scaffolding for the
+    evolved chain) rather than ``HyperAdaptiveSplitAI`` so the
+    inherited reserve / discount-feature plumbing doesn't bleed in.
+    The reveal logic comes from ``BaseEvoAI.choose_gem_to_reveal``,
+    which is a direct lift of ``HeuristicAI.choose_gem_to_reveal`` —
+    the user's redesign is purely about bidding.
     """
 
     NUM_WEIGHTS = 19  # 7 (treasure) + 6 (invest) + 6 (loan)
@@ -701,8 +701,7 @@ class Evo2AI(Player):
         loan: _LoanModel | None = None,
         seed: int | None = None,
     ) -> None:
-        super().__init__(name)
-        self._rng = random.Random(seed)
+        super().__init__(name, seed=seed)
         self.treasure_model = treasure if treasure is not None else self.DEFAULT_TREASURE
         self.invest_model = invest if invest is not None else self.DEFAULT_INVEST
         self.loan_model = loan if loan is not None else self.DEFAULT_LOAN
@@ -841,38 +840,3 @@ class Evo2AI(Player):
                 f"mission_delta={delta:+.2f}"
             )
         return lines
-
-    def choose_gem_to_reveal(
-        self,
-        public_state: "GameState",
-        my_state: "PlayerState",
-    ) -> GemCard:
-        # Direct copy of HeuristicAI.choose_gem_to_reveal — the user's
-        # redesign targets bidding only. Re-implemented here rather than
-        # imported so this file has no behavioural dependency on the
-        # existing AI hierarchy.
-        chart = public_state.value_chart
-        display = public_state.value_display
-
-        my_holding = my_state.collection_gems
-        opp_holding: Counter = Counter()
-        for ps in public_state.player_states:
-            if ps is my_state:
-                continue
-            opp_holding.update(ps.collection_gems)
-
-        best_score: tuple[int, int] | None = None
-        best_card: GemCard | None = None
-        for card in my_state.hand:
-            color = card.color
-            current = display.get(color, 0)
-            delta = value_for(chart, current + 1) - value_for(chart, current)
-            relative = my_holding.get(color, 0) - opp_holding.get(color, 0)
-            net_benefit = delta * relative
-            tiebreaker = -my_holding.get(color, 0)
-            score = (net_benefit, tiebreaker)
-            if best_score is None or score > best_score:
-                best_score = score
-                best_card = card
-
-        return best_card if best_card is not None else my_state.hand[0]

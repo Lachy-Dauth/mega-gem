@@ -12,6 +12,7 @@ value-estimation and discount-feature math lives in
 """
 
 from .base import Player
+from .base_evo import BaseEvoAI
 from .evo2 import Evo2AI
 from .evo3 import Evo3AI
 from .evo4 import Evo4AI
@@ -44,6 +45,7 @@ from .hyper_adaptive_split import HyperAdaptiveSplitAI, _BidModel
 from .random_ai import RandomAI
 
 __all__ = [
+    "BaseEvoAI",
     "Evo2AI",
     "Evo3AI",
     "Evo4AI",

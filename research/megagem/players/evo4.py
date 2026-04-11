@@ -55,21 +55,19 @@ the new features can leak into the bid.
 from __future__ import annotations
 
 import math
-import random
 from collections import Counter
 from typing import TYPE_CHECKING
 
 from ..cards import (
     AuctionCard,
     Color,
-    GemCard,
     InvestCard,
     LoanCard,
     TreasureCard,
 )
 from ..engine import max_legal_bid
 from ..value_charts import value_for
-from .base import Player
+from .base_evo import BaseEvoAI
 from .evo2 import (
     _compute_evo2_features,
     _Evo2Features,
@@ -337,7 +335,7 @@ def _predict_opponent_treasure_bids(
 # ---------------------------------------------------------------------------
 
 
-class Evo4AI(Player):
+class Evo4AI(BaseEvoAI):
     """Evo3 with bid-signal-driven color probability adjustment.
 
     Per-round lifecycle:
@@ -437,8 +435,7 @@ class Evo4AI(Player):
         internal_evo2_treasure: _Evo2TreasureModel | None = None,
         seed: int | None = None,
     ) -> None:
-        super().__init__(name)
-        self._rng = random.Random(seed)
+        super().__init__(name, seed=seed)
         self.treasure_model = (
             treasure if treasure is not None else self.DEFAULT_TREASURE
         )
@@ -456,18 +453,18 @@ class Evo4AI(Player):
             if internal_evo2_treasure is not None
             else self.DEFAULT_INTERNAL_EVO2_TREASURE
         )
-        # Evo3-style opp-delta history (category, max_opp_bid − baseline).
-        self._opp_history: list[tuple[str, float]] = []
+        # ``self._opp_history`` (Evo3-style log of ``(category,
+        # max_opp_bid − baseline)``) and ``self._last_default_bid``
+        # (scratch cache for the default-deltas baseline bid) are
+        # initialized by :class:`BaseEvoAI`. ``observe_round`` below
+        # reads and clears the cache so stale values can't leak across
+        # rounds.
         # New in Evo4: per-color running sum of the same delta attributed
         # across the colors of the gems on offer. Updated in observe_round
         # for treasure rounds only. Persists for the life of this instance;
         # a fresh game starts with a fresh signal because a new Evo4AI is
         # constructed per game by the factories.
         self._color_signal: dict[Color, float] = _empty_color_signal()
-        # Scratch cache — same role as Evo3._last_default_bid. Cleared
-        # unconditionally in observe_round so a stale value can't leak
-        # across rounds.
-        self._last_default_bid: int | None = None
 
     @classmethod
     def from_weights(
@@ -788,38 +785,3 @@ class Evo4AI(Player):
                 f"opp_max={opp_max:.1f}  opp_avg={opp_avg:.1f}"
             )
         return lines
-
-    # ------------------------------------------------------------------
-    # Reveal policy — direct copy of Evo3/Evo2/HeuristicAI. Inlined so
-    # this file has no behavioural dependency on the older AIs.
-    # ------------------------------------------------------------------
-    def choose_gem_to_reveal(
-        self,
-        public_state: "GameState",
-        my_state: "PlayerState",
-    ) -> GemCard:
-        chart = public_state.value_chart
-        display = public_state.value_display
-
-        my_holding = my_state.collection_gems
-        opp_holding: Counter = Counter()
-        for ps in public_state.player_states:
-            if ps is my_state:
-                continue
-            opp_holding.update(ps.collection_gems)
-
-        best_score: tuple[int, int] | None = None
-        best_card: GemCard | None = None
-        for card in my_state.hand:
-            color = card.color
-            current = display.get(color, 0)
-            delta = value_for(chart, current + 1) - value_for(chart, current)
-            relative = my_holding.get(color, 0) - opp_holding.get(color, 0)
-            net_benefit = delta * relative
-            tiebreaker = -my_holding.get(color, 0)
-            score = (net_benefit, tiebreaker)
-            if best_score is None or score > best_score:
-                best_score = score
-                best_card = card
-
-        return best_card if best_card is not None else my_state.hand[0]
