@@ -1241,6 +1241,18 @@
                     13–19 points of win rate against non-Evo4 tables.
                 </p>
 
+                <div class="section-label">Reading players it can't model</div>
+                <p>
+                    Humans don't bid like any bot. Early versions of Search AI had a blind spot: against
+                    players who consistently bid about half of what Evo4 would, it kept expecting the
+                    price to be higher, sat out auction after auction, and won only 31% of games. So it now
+                    checks each opponent's bid against the range their model could produce for <em>any</em>
+                    hand. If a seat lands outside that range at least twice in its last eight bids, it
+                    starts adding that seat's recent misses to its predictions. Against those lowballers
+                    it now wins 67%; against the zoo bots, which it predicts almost exactly, nothing
+                    changes.
+                </p>
+
                 <div class="section-label">4. Find the price to win</div>
                 <p>
                     Bids are sealed and simultaneous, so in a given world its own bid can't change anyone
@@ -1283,11 +1295,12 @@
                     <thead><tr><th>Opponents</th><th>Search AI wins</th></tr></thead>
                     <tbody>
                         <tr><td>3× Evo4</td><td class="wt-value positive">80%</td></tr>
-                        <tr><td>3× Evo3</td><td class="wt-value positive">86%</td></tr>
-                        <tr><td>Heuristic + Evo3 + Evo4</td><td class="wt-value positive">87%</td></tr>
-                        <tr><td>Evo2 + Evo1 + Heuristic</td><td class="wt-value positive">87%</td></tr>
-                        <tr><td>2× Evo4 (3 players; fair share 33%)</td><td class="wt-value positive">90%</td></tr>
-                        <tr><td>4× Evo4 (5 players; fair share 20%)</td><td class="wt-value positive">83%</td></tr>
+                        <tr><td>3× Evo3</td><td class="wt-value positive">87%</td></tr>
+                        <tr><td>Heuristic + Evo3 + Evo4</td><td class="wt-value positive">89%</td></tr>
+                        <tr><td>Evo2 + Evo1 + Heuristic</td><td class="wt-value positive">85%</td></tr>
+                        <tr><td>2× Evo4 (3 players; fair share 33%)</td><td class="wt-value positive">89%</td></tr>
+                        <tr><td>4× Evo4 (5 players; fair share 20%)</td><td class="wt-value positive">85%</td></tr>
+                        <tr><td>3× "lowballers" (Evo4 at half its bid)</td><td class="wt-value positive">67%</td></tr>
                     </tbody>
                 </table>
                 <p>

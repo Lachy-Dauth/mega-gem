@@ -549,17 +549,23 @@ the website.
    is then modelled by its most likely bot. **Shadow** copies of every
    (seat, model) watch the real game, so Evo3/Evo4 history features
    (bid deltas, colour signal) match the real opponent's (`shadow`).
-4. **Price to win.** Bids are sealed and simultaneous, so in a world
+4. **Calibrate** (`calibrate`). For a seat no model fits (a
+   lowballer, an erratic human), it tracks how far each bid fell
+   outside the range the seat's model could produce for *any* hand, and
+   adds a recent error to that seat's predicted bids. It's gated: only
+   seats that miss at least twice in their last 8 bids are adjusted, so
+   the near-exactly-predicted zoo bots are left alone.
+5. **Price to win.** Bids are sealed and simultaneous, so in a world
    its own bid can't change anyone else's. Each world collapses to one
    threshold: the cheapest winning bid under the engine's tie-break.
-5. **Two rollouts per world**, lose vs win-at-threshold, sharing the
+6. **Two rollouts per world**, lose vs win-at-threshold, sharing the
    world and RNG seed. Opponents replay exactly the predicted bids for
    this round, then continue as their seat models. Its own future turns
    use a *sniper* rollout policy (`rollout_snipe`): Evo4's valuation,
    but paying only the threshold when Evo4 would win anyway, which is
    closer to how SearchAI itself plays. Outcomes are scored as a sigmoid
    of the final margin over the best opponent.
-6. **Choose.** For each legal bid `b`, worlds with threshold > `b`
+7. **Choose.** For each legal bid `b`, worlds with threshold > `b`
    score their lose branch and the rest their win branch, minus the
    overpayment `b − threshold`. Highest average wins.
 
@@ -572,12 +578,12 @@ an equal-strength bot would get 25% at a 4-player table):
 
 | Table | SearchAI | Fair share |
 |---|---|---|
-| vs 3× Evo4 (600 games) | **79.9% ± 1.6** | 25% |
-| vs 3× Evo3 | **85.5% ± 2.5** | 25% |
-| vs Heuristic + Evo3 + Evo4 | **86.8% ± 2.4** | 25% |
-| vs Evo2 + Evo1 + Heuristic | **86.5% ± 2.4** | 25% |
-| 3 players, vs 2× Evo4 | **90.0% ± 2.4** | 33% |
-| 5 players, vs 4× Evo4 | **82.7% ± 3.1** | 20% |
+| vs 3× Evo4 (600 games) | **79.6% ± 1.6** | 25% |
+| vs 3× Evo3 | **87.0% ± 2.4** | 25% |
+| vs Heuristic + Evo3 + Evo4 | **89.0% ± 2.2** | 25% |
+| vs Evo2 + Evo1 + Heuristic | **84.5% ± 2.6** | 25% |
+| 3 players, vs 2× Evo4 | **89.3% ± 2.5** | 33% |
+| 5 players, vs 4× Evo4 | **84.7% ± 2.9** | 20% |
 
 For comparison, Evo4 wins about a quarter of games against copies of
 itself. Ablation (200 paired seeds each; the components stack):
@@ -588,7 +594,8 @@ itself. Ablation (200 paired seeds each; the components stack):
 | + shadow models | 76.7% | |
 | + hand inference | 79.0% | |
 | + opponent identification | 80.5% | 80.5%¹ |
-| + sniper rollouts (**standard**) | 84.0% | 85.5% |
+| + sniper rollouts | 84.0% | 85.5% |
+| + gated calibration (**standard**) | 84.3% | 87.0%² |
 
 ¹ identify + shadow, without inference. Identification matters most
 when the table isn't all Evo4: it lifts the mixed Heuristic/Evo3/Evo4
@@ -598,12 +605,31 @@ strength for time (12 → 72%, 24 → 80%, 48 → 82.5% at 1×/2×/4× cost);
 the sigmoid temperature (3, 6, 12) and searched reveals made no
 measurable difference. Runtime is ~0.2 s per bid in CPython.
 
+² different run; calibration is neutral against the zoo bots (paired
+difference within ±2 points on every bot table).
+
+**Robustness to players it can't model.** The zoo bots are all in
+SearchAI's model bank, but humans aren't. To check, three synthetic
+"human-like" opponents distort Evo4's bids in ways no bank model
+reproduces (200 paired seeds each):
+
+| Opponents (3×) | without calibration | with calibration |
+|---|---|---|
+| Lowball (Evo4's bid × 0.5) | 31.2% | **67.2%** |
+| Noisy (Evo4's bid ± up to 3) | 58.0% | **69.8%** |
+| Overbid (Evo4's bid × 1.5) | 81.0% | **86.8%** |
+
+Without calibration a lowballer *beats* SearchAI: it keeps predicting
+a higher price-to-win than anyone pays and sits out. An ungated
+version fixed that but cost ~3 points against the exactly-predicted
+zoo bots; gating it on two misses in the last eight bids keeps both.
+
 Construct it with `SearchAI.standard(name, seed=..., weights={...})`,
 where `weights` maps `evo1`..`evo4` to weight vectors for its internal
 models (`None` → class defaults). The CLI and web client pass their
 loaded `saved_best_weights/`. Every component is a constructor flag
-(`infer`, `shadow`, `identify`, `rollout_snipe`, `reveal_search`,
-`worlds`, `temperature`) so it's easy to ablate. It is reproducible
+(`infer`, `shadow`, `identify`, `calibrate`, `rollout_snipe`,
+`reveal_search`, `worlds`, `temperature`) so it's easy to ablate. It is reproducible
 for a fixed `seed`, and never reads hidden state:
 `tests/test_search.py::NoPeekingTest` reshuffles the real hidden cards
 and checks the bid doesn't change.
