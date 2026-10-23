@@ -188,6 +188,68 @@ def unseen_pool(state: GameState, my_state: PlayerState) -> list[Color]:
     return pool
 
 
+def deal_world(
+    state: GameState,
+    my_idx: int,
+    rng: random.Random,
+) -> tuple[list[list[GemCard]], list[GemCard], list[AuctionCard]]:
+    """Deal the unseen pool into opponents' hands + deck; shuffle auctions.
+
+    Uses public information only (plus my own hand): see ``unseen_pool``.
+    """
+    me = state.player_states[my_idx]
+    pool = [_GEM[c] for c in unseen_pool(state, me)]
+    rng.shuffle(pool)
+    hands: list[list[GemCard]] = []
+    pos = 0
+    for i, ps in enumerate(state.player_states):
+        if i == my_idx:
+            hands.append(list(me.hand))
+            continue
+        n = len(ps.hand)
+        hands.append(pool[pos:pos + n])
+        pos += n
+    gem_deck = pool[pos:]
+    auctions = list(state.auction_deck)
+    rng.shuffle(auctions)
+    return hands, gem_deck, auctions
+
+
+def build_world_state(
+    state: GameState,
+    players: list[Player],
+    hands: list[list[GemCard]],
+    gem_deck: list[GemCard],
+    auctions: list[AuctionCard],
+) -> GameState:
+    """A fresh, fully-owned GameState for one simulated world."""
+    pstates = [
+        PlayerState(
+            name=ps.name,
+            is_human=False,
+            hand=list(hand),
+            coins=ps.coins,
+            collection_gems=Counter(ps.collection_gems),
+            completed_missions=list(ps.completed_missions),
+            loans=list(ps.loans),
+            investments=list(ps.investments),
+        )
+        for ps, hand in zip(state.player_states, hands)
+    ]
+    return GameState(
+        player_states=pstates,
+        players=players,
+        value_chart=state.value_chart,
+        value_display=Counter(state.value_display),
+        gem_deck=list(gem_deck),
+        revealed_gems=list(state.revealed_gems),
+        auction_deck=list(auctions),
+        active_missions=list(state.active_missions),
+        last_winner_idx=state.last_winner_idx,
+        round_number=state.round_number,
+    )
+
+
 class SearchAI(Player):
     """Bid by Monte Carlo rollouts over sampled hidden information."""
 
@@ -303,64 +365,10 @@ class SearchAI(Player):
     # World construction
     # ------------------------------------------------------------------
 
-    def _deal_world(
-        self,
-        state: GameState,
-        my_idx: int,
-        rng: random.Random,
-    ) -> tuple[list[list[GemCard]], list[GemCard], list[AuctionCard]]:
-        """Deal the unseen pool into opponents' hands + deck; shuffle auctions."""
-        me = state.player_states[my_idx]
-        pool = [_GEM[c] for c in unseen_pool(state, me)]
-        rng.shuffle(pool)
-        hands: list[list[GemCard]] = []
-        pos = 0
-        for i, ps in enumerate(state.player_states):
-            if i == my_idx:
-                hands.append(list(me.hand))
-                continue
-            n = len(ps.hand)
-            hands.append(pool[pos:pos + n])
-            pos += n
-        gem_deck = pool[pos:]
-        auctions = list(state.auction_deck)
-        rng.shuffle(auctions)
-        return hands, gem_deck, auctions
+    def _deal_world(self, state: GameState, my_idx: int, rng: random.Random):
+        return deal_world(state, my_idx, rng)
 
-    @staticmethod
-    def _build_state(
-        state: GameState,
-        players: list[Player],
-        hands: list[list[GemCard]],
-        gem_deck: list[GemCard],
-        auctions: list[AuctionCard],
-    ) -> GameState:
-        """A fresh, fully-owned GameState for one simulated world."""
-        pstates = [
-            PlayerState(
-                name=ps.name,
-                is_human=False,
-                hand=list(hand),
-                coins=ps.coins,
-                collection_gems=Counter(ps.collection_gems),
-                completed_missions=list(ps.completed_missions),
-                loans=list(ps.loans),
-                investments=list(ps.investments),
-            )
-            for ps, hand in zip(state.player_states, hands)
-        ]
-        return GameState(
-            player_states=pstates,
-            players=players,
-            value_chart=state.value_chart,
-            value_display=Counter(state.value_display),
-            gem_deck=list(gem_deck),
-            revealed_gems=list(state.revealed_gems),
-            auction_deck=list(auctions),
-            active_missions=list(state.active_missions),
-            last_winner_idx=state.last_winner_idx,
-            round_number=state.round_number,
-        )
+    _build_state = staticmethod(build_world_state)
 
     # ------------------------------------------------------------------
     # Hand inference from opponents' bids
