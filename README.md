@@ -344,7 +344,8 @@ pick which gem from their hand goes into the public value display;
 `observe_round` is an optional post-round hook that lets an AI update
 internal state: Evo3 logs opponent-bid deltas (§9), Evo4 updates its
 per-color gem-inference signal (§10), and SearchAI identifies opponents
-and infers their hands (§11).
+and infers their hands (§11). NashAI (§12) deliberately keeps no
+per-opponent state.
 
 Shared value-estimation math (`_expected_final_display`,
 `_treasure_value`, the `_hyper_*` family, `_compute_discount_features`,
@@ -633,6 +634,54 @@ loaded `saved_best_weights/`. Every component is a constructor flag
 for a fixed `seed`, and never reads hidden state:
 `tests/test_search.py::NoPeekingTest` reshuffles the real hidden cards
 and checks the bid doesn't change.
+
+### 12. `NashAI` — `megagem/players/nash.py`
+
+SearchAI wins by **exploiting**: it predicts each opponent's exact bid
+with a model of a zoo bot and outbids it by one. That is also what makes
+it exploitable. NashAI asks a different question: *what would rational
+players bid here, and what should I bid against them?*
+
+1. **Worlds.** Sample the unseen gems into hands + deck, as SearchAI does.
+2. **Everyone's stakes.** In each world, roll the game out once per
+   possible winner of this auction, twice each: once with the item
+   free and once at a probe price. That gives every player's payoff if
+   they win, if each rival wins instead (the externality: losing a
+   treasure to the leader hurts more than losing it to last place), and
+   how much a coin of bid really costs them in final margin. That cost
+   is measured, not assumed to be 1:1. Coins buy underpriced items
+   later, so assuming 1:1 once made it pay 19 for a 20-coin loan.
+3. **Solve the auction.** Treat the auction as a Bayesian game: each
+   opponent's type is how much it values winning (worlds bucketed by
+   that value); I'm uncertain which world is real. Regret matching+
+   with linear averaging finds an approximate equilibrium, with the real
+   tie-break rule, in which every player's bid distribution is a best
+   response to everyone else's.
+4. **Play the mixed strategy.** Sample the bid from my equilibrium
+   distribution. Someone who knows exactly how NashAI plays still can't
+   predict its bid, only the distribution.
+
+It carries no per-opponent state and never assumes the opponents are
+zoo bots. It's an equilibrium of each *auction* with rollout continuation
+values, not of the whole game, but that's enough to make it much harder
+to exploit.
+
+**Measuring "Nash-ness": exploitability.** Seat one *exploiter* against
+three copies of a bot. The exploiter is a SearchAI whose only opponent
+model is the target itself (a fresh copy with a different seed: it knows
+the strategy, not the coin flips; shadow copies track targets with
+per-game history). Exploitability = its win share minus the fair 25%. A
+Nash equilibrium would score 0.
+
+{{NASH_EXPLOIT}}
+
+**Restricted Nash response.** `model_weight=α` forces each opponent,
+with probability α, to play what a model (the rollout policy, Evo4)
+would bid, and lets it best-respond otherwise (Johanson et al.'s
+restricted Nash response). α = 0 is the pure equilibrium bot. Raising α
+exploits Evo4-like opponents more and becomes more exploitable itself:
+
+{{NASH_RNR}}
 
 ---
 

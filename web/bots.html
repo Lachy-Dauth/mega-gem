@@ -1316,6 +1316,71 @@
                 </p>
             </div>
         </details>
+
+        <!-- Nash AI -->
+        <details class="bot-card">
+            <summary>
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                <div class="bot-header">
+                    <h3>Nash AI</h3>
+                    <div class="bot-difficulty">Equilibrium</div>
+                </div>
+            </summary>
+            <div class="bot-body">
+                <p>
+                    Search AI is strong because it is an <em>exploiter</em>: it predicts each bot's exact bid
+                    and outbids it by a coin. That also makes it predictable. Nash AI is built the other
+                    way round. It assumes everyone at the table is as rational as it is, works out an
+                    equilibrium for each auction, and plays a <strong>mixed strategy</strong>, so its bid
+                    can't be predicted even by someone who knows exactly how it thinks.
+                </p>
+
+                <div class="section-label">1. What is this auction worth to everyone?</div>
+                <p>
+                    In a dozen imagined deals of the hidden cards, it plays the game to the end once for
+                    each player who might win this auction, at two different prices. That gives every
+                    player's stake: how much they gain by winning, how much it hurts them when each rival
+                    wins instead, and how much a coin of bid really costs them by the end of the game.
+                    Coins are worth more than face value mid-game, because they buy cheap gems later.
+                </p>
+
+                <div class="section-label">2. Solve the auction</div>
+                <p>
+                    Each opponent knows how much it values the item; Nash AI only knows the odds. That's a
+                    Bayesian game, and Nash AI solves it with <em>regret matching</em>: every player repeatedly
+                    shifts its bids toward the ones it regrets not making, until no-one can do better by
+                    changing alone. The result is a probability distribution over bids for every player.
+                </p>
+
+                <div class="section-label">3. Roll the dice</div>
+                <p>
+                    It samples its bid from its own equilibrium distribution. Turn on <em>Show bot
+                    reasoning</em> to see the mix it's choosing from.
+                </p>
+
+                <div class="section-label">A little exploitation, safely</div>
+                <p>
+                    Pure equilibrium play leaves money on the table against bots that underbid. So Nash AI
+                    assumes each opponent plays like Evo4 half the time and like a rational player the rest
+                    (a <em>restricted Nash response</em>). That makes it much stronger against the zoo while
+                    staying almost as hard to exploit.
+                </p>
+
+                <div class="section-label">How exploitable is each bot?</div>
+                <p>
+                    Seat an exploiter, a Search AI that knows the target's strategy exactly (but not its
+                    dice rolls), against three copies of the target. An unexploitable bot would hold it to
+                    25%.
+                </p>
+                <table class="weight-table">
+                    <thead><tr><th>Target (3 copies)</th><th>Exploiter wins</th></tr></thead>
+                    <tbody>
+                        {{EXPLOIT_ROWS}}
+                    </tbody>
+                </table>
+                <p>{{NASH_STRENGTH}}</p>
+            </div>
+        </details>
     </div>
 
     <script>
