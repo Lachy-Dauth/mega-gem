@@ -21,6 +21,7 @@ from .players import (
     HyperAdaptiveSplitAI,
     Player,
     RandomAI,
+    SearchAI,
 )
 
 
@@ -127,6 +128,16 @@ def _evo4_factory(name: str, *, seed: int, num_players: int) -> Player:
     return Evo4AI.from_weights(name, weights, seed=seed)
 
 
+def _search_factory(name: str, *, seed: int, num_players: int) -> Player:
+    """Build the standard SearchAI. Its opponent/rollout models use every
+    evo profile's checked-in weights (class defaults where missing)."""
+    weights = {
+        key: _load_evo_weights(key, num_players)
+        for key in ("evo1", "evo2", "evo3", "evo4")
+    }
+    return SearchAI.standard(name, seed=seed, weights=weights)
+
+
 AI_FACTORIES: dict[str, AIFactory] = {
     "random":     lambda name, *, seed, num_players: RandomAI(name, seed=seed),
     "heuristic":  lambda name, *, seed, num_players: HeuristicAI(name, seed=seed),
@@ -134,6 +145,7 @@ AI_FACTORIES: dict[str, AIFactory] = {
     "evo2":       _evo2_factory,
     "evo3":       _evo3_factory,
     "evo4":       _evo4_factory,
+    "search":     _search_factory,
 }
 
 
@@ -187,7 +199,8 @@ def main(argv: list[str] | None = None) -> int:
                         choices=list(AI_FACTORIES),
                         help=("Which AI to use for opponents (and --all-ai players). "
                               "`evolved`, `evo2`, `evo3`, and `evo4` load GA-tuned "
-                              "weights from saved_best_weights/."))
+                              "weights from saved_best_weights/. `search` is the "
+                              "Monte Carlo SearchAI (strongest, ~0.3s per bid)."))
     args = parser.parse_args(argv)
 
     players = build_players(args.players, args.all_ai, args.debug, args.seed, args.ai)

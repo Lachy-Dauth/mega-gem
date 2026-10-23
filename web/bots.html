@@ -1195,6 +1195,107 @@
                 </details>
             </div>
         </details>
+
+        <!-- Search AI -->
+        <details class="bot-card" open>
+            <summary>
+                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                <div class="bot-header">
+                    <h3>Search AI</h3>
+                    <div class="bot-difficulty">Champion</div>
+                </div>
+            </summary>
+            <div class="bot-body">
+                <p>
+                    Every other bot is a formula: features in, bid out. Search AI has no bidding formula at
+                    all. Before every bid it <strong>plays the rest of the game forward</strong>, dozens of
+                    times, and picks the bid that wins most often. It is a determinized Monte Carlo search
+                    (<code>megagem/players/search.py</code>) and it beats every bot in the zoo by a wide margin.
+                </p>
+
+                <div class="section-label">1. Imagine the hidden cards</div>
+                <p>
+                    The only secret information in MegaGem is how the unseen gems are split between opponents'
+                    hands and the gem deck, plus the order of the remaining auction cards. Everything else is
+                    public. Search AI deals that unseen pool at random into hands and a deck of the right sizes
+                    to build a few dozen <em>worlds</em>, each a complete, fully known game.
+                </p>
+
+                <div class="section-label">2. Read opponents' bids for clues</div>
+                <p>
+                    Opponents' treasure bids depend on their hands. After every treasure round, Search AI asks
+                    "what would this opponent have bid holding each possible hand?" (at most 70 hand
+                    compositions), and it remembers which hands explain the bid they actually made. Worlds are
+                    then weighted by how well they explain <em>every</em> bid each opponent has made so far.
+                    Gems revealed since then are added back into the hand they came from. A floor on the
+                    likelihood keeps an unpredictable opponent (or a human) from ruling out the truth.
+                </p>
+
+                <div class="section-label">3. Work out who it's playing</div>
+                <p>
+                    It keeps a bank of models (Random, Heuristic, Evo1–Evo4) and scores each one against every
+                    seat's bids, so after a few rounds it knows, say, that seat 2 bids like Heuristic and seat 3
+                    like Evo3. It also keeps a <strong>shadow</strong> copy of each opponent's model that has
+                    watched every round from that seat, so history-driven features (Evo3/Evo4's bid deltas and
+                    colour signal) match the real opponent's. Identification is worth about
+                    {{IDENTIFY_GAIN}} points of win rate against non-Evo4 tables.
+                </p>
+
+                <div class="section-label">4. Find the price to win</div>
+                <p>
+                    Bids are sealed and simultaneous, so in a given world its own bid can't change anyone
+                    else's. Each world therefore collapses to a single number: the cheapest bid that wins,
+                    following the real tie-break rule (closest seat to the left of the last winner).
+                </p>
+
+                <div class="section-label">5. Play it out, twice</div>
+                <p>
+                    From each world it plays the game to the end twice: once losing this auction, once winning
+                    it at exactly the price-to-win. Every seat plays its identified model (Search AI plays Evo4
+                    for its own future turns). Both branches share the world and the random seed, so the
+                    comparison isolates this one decision. The result is scored as a sigmoid of the final margin
+                    over the best opponent, a smooth stand-in for "did I win?".
+                </p>
+
+                <div class="section-label">6. Choose the bid</div>
+                <p>
+                    For every legal bid <code>b</code>, worlds whose price-to-win is above <code>b</code> score
+                    their lose branch; the rest score their win branch, minus whatever it overpaid. The best
+                    average wins. Bidding exactly the predicted price is the whole trick: the Evo bots bid what
+                    an item is worth to <em>them</em>; Search AI bids what it costs to <em>beat them</em>.
+                </p>
+
+                <div class="section-label">Revealing gems</div>
+                <p>
+                    Every hand ends up in the Value Display at the end anyway, so the final value of each colour
+                    is fixed at the deal. A reveal only changes what opponents <em>believe</em> and when. Search
+                    AI uses the Heuristic AI's reveal rule. {{REVEAL_NOTE}}
+                </p>
+
+                <div class="section-label">How strong is it?</div>
+                <p>
+                    Win share in 4-player games (ties split), 200 games each, all five charts, seat rotated.
+                    A bot as strong as the table would get 25%.
+                </p>
+                <table class="weight-table">
+                    <thead><tr><th>Opponents</th><th>Search AI wins</th></tr></thead>
+                    <tbody>
+                        {{STRENGTH_ROWS}}
+                    </tbody>
+                </table>
+                <p>
+                    It costs about {{BID_TIME}} per bid in the browser, so a table of three Search bots takes a
+                    few seconds a round. The engine is still the same Python, running in your browser.
+                </p>
+
+                <div class="section-label">Why it exists</div>
+                <p>
+                    The GA bots kept squeezing a few points out of ever-bigger linear models. Search AI shows how
+                    much is left on the table by an agent that explicitly reasons about hidden information and
+                    about who it is playing. That's the next baseline for anything the GA produces.
+                </p>
+            </div>
+        </details>
     </div>
 
     <script>

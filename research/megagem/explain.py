@@ -79,6 +79,17 @@ class ExplainingPlayer(Player):
     ) -> GemCard:
         return self._inner.choose_gem_to_reveal(public_state, my_state)
 
+    def observe_round(
+        self,
+        public_state: "GameState",
+        my_idx: int,
+        result: dict,
+    ) -> None:
+        # Forward the engine's post-round hook: Evo3/Evo4 build bid history
+        # and SearchAI its opponent model here. Dropping it would make
+        # --debug games play differently from normal ones.
+        self._inner.observe_round(public_state, my_idx, result)
+
 
 # ---------- pretty printer ------------------------------------------------
 

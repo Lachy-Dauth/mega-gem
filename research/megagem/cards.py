@@ -13,6 +13,14 @@ class Color(Enum):
     PURPLE = "Purple"
     YELLOW = "Yellow"
 
+    # Enum's default __hash__ is a Python-level function (hash of the
+    # member name). Colours key every Counter in the engine and the AIs,
+    # so that call dominated profiles. Members are singletons compared
+    # by identity, so the C-level identity hash is equivalent — and no
+    # code depends on set ordering (the name hash is already randomised
+    # per process by PYTHONHASHSEED).
+    __hash__ = object.__hash__
+
     def __str__(self) -> str:
         return self.value
 

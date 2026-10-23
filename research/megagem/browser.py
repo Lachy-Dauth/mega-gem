@@ -47,6 +47,7 @@ from .players import (
     HyperAdaptiveSplitAI,
     Player,
     RandomAI,
+    SearchAI,
 )
 from .state import GameState, PlayerState
 from .value_charts import VALUE_CHARTS
@@ -104,6 +105,16 @@ def _evo_factory(profile_key: str, cls: type) -> Callable[..., Player]:
     return build
 
 
+def _search_factory(name: str, *, seed: int, num_players: int, weights_dir: Path) -> Player:
+    # The search bot's internal models use the same weights as the bots
+    # actually seated at the table (same lookup chain, same 4p fallback).
+    weights = {
+        key: _load_evo_weights(weights_dir, key, num_players)
+        for key in ("evo1", "evo2", "evo3", "evo4")
+    }
+    return SearchAI.standard(name, seed=seed, weights=weights)
+
+
 # Keys match the CLI's ``AI_FACTORIES`` so docs and the browser share
 # vocabulary. Missing weights fall back to class defaults, never an error.
 AI_FACTORIES: dict[str, Callable[..., Player]] = {
@@ -113,6 +124,7 @@ AI_FACTORIES: dict[str, Callable[..., Player]] = {
     "evo2": _evo_factory("evo2", Evo2AI),
     "evo3": _evo_factory("evo3", Evo3AI),
     "evo4": _evo_factory("evo4", Evo4AI),
+    "search": _search_factory,
 }
 
 AI_KINDS = tuple(AI_FACTORIES)

@@ -3,15 +3,23 @@
 Reuses the same simulation logic as heatmap_pairwise.py but outputs
 a JSON file instead of a matplotlib image. Run from research/:
 
-    python -m scripts.generate_heatmap_json
+    python -m scripts.generate_heatmap_json            # all cores
+    python -m scripts.generate_heatmap_json --jobs 2
 
-Writes to ../web/heatmap_data.json.
+Writes to ../web/heatmap_data.json. Games run in parallel (one process
+per core by default); results are identical to a serial run because
+every game is fully determined by its (row, column, chart, seed).
+SearchAI cells dominate the runtime: a Search column seats three
+search bots per game.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import random
+from multiprocessing import Pool
 from pathlib import Path
 
 from megagem.engine import is_game_over, play_round, score_game, setup_game
@@ -22,6 +30,7 @@ from megagem.players import (
     HeuristicAI,
     HyperAdaptiveSplitAI,
     RandomAI,
+    SearchAI,
 )
 
 CHARTS = "ABCDE"
@@ -81,6 +90,11 @@ def make_factories() -> dict:
     else:
         factories["Evo4"] = lambda name, seed: Evo4AI(name, seed=seed)
 
+    search_weights = {k: _load_evo_weights(k) for k in ("evo1", "evo2", "evo3", "evo4")}
+    factories["Search"] = lambda name, seed: SearchAI.standard(
+        name, seed=seed, weights=search_weights
+    )
+
     return factories
 
 
@@ -100,33 +114,48 @@ def play_one(challenger_factory, opponent_factory, chart: str, seed: int) -> boo
     return scores[0]["total"] > max(s["total"] for s in scores[1:])
 
 
-def winrate(challenger_factory, opponent_factory) -> float:
-    wins = 0
-    total = 0
-    for chart in CHARTS:
-        for s in range(SEED_START, SEED_START + GAMES_PER_CHART):
-            if play_one(challenger_factory, opponent_factory, chart, s):
-                wins += 1
-            total += 1
-    return wins / total
+_FACTORIES: dict | None = None
+
+
+def _init_worker() -> None:
+    global _FACTORIES
+    _FACTORIES = make_factories()
+
+
+def _play_cell_game(job: tuple[str, str, str, int]) -> tuple[str, str, bool]:
+    row, col, chart, seed = job
+    won = play_one(_FACTORIES[row], _FACTORIES[col], chart, seed)
+    return row, col, won
 
 
 def main() -> None:
-    factories = make_factories()
-    names = list(factories.keys())
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
+    args = parser.parse_args()
+
+    names = list(make_factories().keys())
     n = len(names)
     total_games = GAMES_PER_CHART * len(CHARTS)
+    print(f"Building {n}x{n} pairwise matrix ({total_games} games/cell, {args.jobs} jobs)...")
 
-    print(f"Building {n}x{n} pairwise matrix ({total_games} games/cell)...")
+    jobs = [
+        (row, col, chart, s)
+        for row in names
+        for col in names
+        for chart in CHARTS
+        for s in range(SEED_START, SEED_START + GAMES_PER_CHART)
+    ]
+    wins = {(r, c): 0 for r in names for c in names}
+    done = {(r, c): 0 for r in names for c in names}
+    with Pool(args.jobs, initializer=_init_worker) as pool:
+        for row, col, won in pool.imap_unordered(_play_cell_game, jobs, chunksize=4):
+            wins[row, col] += won
+            done[row, col] += 1
+            if done[row, col] == total_games:
+                print(f"  {row:>13} vs 3x {col:<13} = {wins[row, col] / total_games * 100:5.1f}%",
+                      flush=True)
 
-    matrix: list[list[float]] = []
-    for i, row in enumerate(names):
-        row_data: list[float] = []
-        for j, col in enumerate(names):
-            wr = winrate(factories[row], factories[col])
-            row_data.append(round(wr, 3))
-            print(f"  {row:>13} vs 3x {col:<13} = {wr * 100:5.1f}%")
-        matrix.append(row_data)
+    matrix = [[round(wins[r, c] / total_games, 3) for c in names] for r in names]
 
     data = {
         "names": names,

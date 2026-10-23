@@ -18,7 +18,8 @@ const CHARTS = {
 
 // Strongest first. Keys match megagem.browser.AI_FACTORIES.
 const BOTS = [
-  { kind: "evo4", label: "Evo4", tier: "Champion" },
+  { kind: "search", label: "Search", tier: "Champion" },
+  { kind: "evo4", label: "Evo4", tier: "Expert" },
   { kind: "evo3", label: "Evo3", tier: "Very hard" },
   { kind: "evo2", label: "Evo2", tier: "Hard" },
   { kind: "evolved", label: "Evo1", tier: "Tough" },

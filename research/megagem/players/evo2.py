@@ -398,37 +398,24 @@ def _p_player_wins_mission(
     overrides = holding_overrides or {}
     n = state.num_players
 
-    # Build plain dicts (not Counters) for the per-player holdings.
-    # The mission predicate only needs ``.get(color, 0)`` / ``.values()``,
-    # both of which dict supports — and dict copy + in-place add is
-    # markedly faster than Counter.__add__, which was a hot spot.
-    holdings_per_player: list[dict] = []
+    keys: list[tuple[int, ...]] = []
     for idx, ps in enumerate(state.player_states):
-        h = dict(ps.collection_gems)
+        key = _holdings_key(ps.collection_gems)
         ovr = overrides.get(idx)
         if ovr:
-            for c, count in ovr.items():
-                h[c] = h.get(c, 0) + count
-        holdings_per_player.append(h)
+            key = tuple(k + ovr.get(c, 0) for k, c in zip(key, _COLORS))
+        keys.append(key)
+
+    satisfied, distances, in_play_total = _mission_structure(tuple(keys), mission)
 
     # Engine tie-break: lowest seat with satisfaction wins.
-    for idx, h in enumerate(holdings_per_player):
-        if mission.is_satisfied_by(h):
-            return 1.0 if idx == player_idx else 0.0
-
-    # In-play pool per color (= cards not in any collection).
-    in_play_total = 0
-    for color in _COLORS:
-        held_total = 0
-        for h in holdings_per_player:
-            held_total += h.get(color, 0)
-        in_play_total += max(0, _GEMS_PER_COLOR - held_total)
+    if satisfied is not None:
+        return 1.0 if satisfied == player_idx else 0.0
 
     avg_coins = sum(ps.coins for ps in state.player_states) / max(1, n)
 
     scores: list[float] = []
-    for idx, h in enumerate(holdings_per_player):
-        distance = _min_extra_gems_to_satisfy(h, mission)
+    for idx, distance in enumerate(distances):
         if distance >= _IMPOSSIBLE_DISTANCE or in_play_total < distance:
             scores.append(0.0)
             continue
@@ -440,6 +427,52 @@ def _p_player_wins_mission(
     if total == 0.0:
         return 0.0
     return scores[player_idx] / total
+
+
+# Memo for the coin-independent part of _p_player_wins_mission, keyed on
+# (every player's holdings tuple, mission.name). Same bounded-dict
+# policy as _DISTANCE_CACHE.
+_STRUCTURE_CACHE: dict = {}
+
+
+def _mission_structure(
+    keys: tuple[tuple[int, ...], ...],
+    mission: MissionCard,
+) -> tuple[int | None, tuple[int, ...], int]:
+    """``(first satisfied seat or None, per-seat distances, gems in play)``.
+
+    Everything in :func:`_p_player_wins_mission` that depends only on
+    collections, not coins. Collections change rarely compared to how
+    often the AIs ask, so this is memoised.
+    """
+    cache_key = (keys, mission.name)
+    cached = _STRUCTURE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Plain dicts: the mission predicates only need ``.get`` / ``.values()``
+    # (zero counts are harmless — every predicate tests ``c > 0`` / ``>= n``).
+    holdings = [dict(zip(_COLORS, key)) for key in keys]
+    satisfied = next(
+        (idx for idx, h in enumerate(holdings) if mission.is_satisfied_by(h)),
+        None,
+    )
+    in_play_total = 0
+    for ci in range(len(_COLORS)):
+        held_total = 0
+        for key in keys:
+            held_total += key[ci]
+        in_play_total += max(0, _GEMS_PER_COLOR - held_total)
+    distances = (
+        ()
+        if satisfied is not None
+        else tuple(_min_extra_gems_to_satisfy(h, mission) for h in holdings)
+    )
+    result = (satisfied, distances, in_play_total)
+    if len(_STRUCTURE_CACHE) >= _DISTANCE_CACHE_LIMIT:
+        _STRUCTURE_CACHE.clear()
+    _STRUCTURE_CACHE[cache_key] = result
+    return result
 
 
 def _mission_probability_delta(
