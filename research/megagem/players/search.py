@@ -196,6 +196,7 @@ class SearchAI(Player):
         shadow: bool = False,
         reveal_search: bool = False,
         rollout_snipe: bool = False,
+        calibrate: bool = False,
         model_bank: dict[str, ModelFactory] | None = None,
         identify: bool = False,
     ) -> None:
@@ -221,6 +222,11 @@ class SearchAI(Player):
         self.shadow = shadow
         self.reveal_search = reveal_search
         self.rollout_snipe = rollout_snipe
+        # Calibration: per (seat, auction kind) history of
+        # "actual bid − model prediction", for opponents no model fits.
+        self.calibrate = calibrate
+        self._residuals: dict[tuple[int, str], list[int]] = {}
+        self._pending_calibration: dict[int, tuple[str, int, int]] | None = None
         self._shadows: dict[tuple[int, str], Player] = {}
         # Opponent identification: candidate models (first = prior favourite)
         # and each seat's running log-likelihood under every candidate.
@@ -384,6 +390,18 @@ class SearchAI(Player):
     # Shadow opponent models
     # ------------------------------------------------------------------
 
+    def _sample_residual(self, seat: int, category: str) -> int:
+        """A recent "actual − predicted" bid error for this seat, so worlds
+        reflect how far off the model has been. All-zero history (a bot the
+        model predicts exactly) leaves predictions untouched."""
+        recent = self._residuals.get((seat, category), [])[-8:]
+        if len(recent) < 2:
+            # Too little history for this auction kind: borrow from all kinds.
+            recent = [r for (j, _), rs in self._residuals.items() if j == seat for r in rs[-8:]]
+        if not any(recent):
+            return 0
+        return self._rng.choice(recent)
+
     def _seat_kind(self, seat: int) -> str:
         """Most likely model for ``seat`` (the bank's first entry until evidence)."""
         default = next(iter(self._bank))
@@ -421,7 +439,8 @@ class SearchAI(Player):
         """
         kinds = list(self._bank) if self.identify else [self._seat_kind(-1)]
         self._pending_type_preds = None
-        if not (self.identify or self.shadow):
+        self._pending_calibration = None
+        if not (self.identify or self.shadow or self.calibrate):
             return
         samples = [self._deal_world(state, my_idx, auction, self._aux_rng) for _ in range(4)]
         scratches = [self._build_state(state, [], *smp) for smp in samples]
@@ -430,7 +449,9 @@ class SearchAI(Player):
             if j == my_idx:
                 continue
             preds[j] = {}
-            for kind in kinds if self.identify else []:
+            seat_kind = self._seat_kind(j)
+            scored = kinds if self.identify else ([seat_kind] if self.calibrate else [])
+            for kind in scored:
                 if isinstance(self._shadow_or_new(j, kind), RandomAI):
                     # Uniform bids: score analytically, not by sampling.
                     preds[j][kind] = [-1 - max_legal_bid(state.player_states[j], auction)]
@@ -450,8 +471,28 @@ class SearchAI(Player):
                     self._shadows[key].choose_bid(sc, sc.player_states[j], auction)
         if self.identify:
             self._pending_type_preds = preds
+        if self.calibrate:
+            # The range of bids the seat's model could make this round. A
+            # bid inside it is explained by *some* hand, so only a bid
+            # outside it counts as model error. Treasure bids depend on the
+            # hand: use the inference table (every possible hand) if we have
+            # one; invest/loan bids don't, so the sampled hands suffice.
+            self._pending_calibration = {}
+            tables = self._pending_tables or {}
+            for j, by_kind in preds.items():
+                ps = by_kind.get(self._seat_kind(j))
+                cap = max_legal_bid(state.player_states[j], auction)
+                if not ps or ps[0] < 0 or cap == 0:
+                    continue
+                span = list(tables[j].values()) if j in tables else ps
+                self._pending_calibration[j] = (type(auction).__name__, min(span), max(span))
 
     def observe_round(self, public_state, my_idx, result) -> None:
+        calibration, self._pending_calibration = self._pending_calibration, None
+        for j, (category, lo, hi) in (calibration or {}).items():
+            bid = result["bids"][j]
+            error = bid - hi if bid > hi else bid - lo if bid < lo else 0
+            self._residuals.setdefault((j, category), []).append(error)
         preds, self._pending_type_preds = self._pending_type_preds, None
         if preds:
             inv = 1.0 / (2.0 * self.bid_sigma ** 2)
@@ -592,8 +633,10 @@ class SearchAI(Player):
             for i, ps in enumerate(world.player_states):
                 if i == my_idx:
                     continue
-                raw = models[i].choose_bid(world, ps, auction)
-                opp_bids[i] = max(0, min(int(raw), max_legal_bid(ps, auction)))
+                raw = int(models[i].choose_bid(world, ps, auction))
+                if self.calibrate:
+                    raw += self._sample_residual(i, type(auction).__name__)
+                opp_bids[i] = max(0, min(raw, max_legal_bid(ps, auction)))
             t = self._threshold(state, my_idx, opp_bids)
             seed = self._rng.randrange(2**31)
             branch = (state, my_idx, hands, gem_deck, auctions, auction)
@@ -677,11 +720,15 @@ class SearchAI(Player):
         s = self.last_search
         ts = sorted(s["thresholds"])
         values = s["values"]
+        median = ts[len(ts) // 2]
+        chosen = s["bid"]
+        # Compare the chosen bid with the obvious alternative: sit out (0)
+        # if we bid, or pay the typical price-to-win if we didn't.
+        alt = 0 if chosen > 0 else min(median, len(values) - 1)
         lines = [
-            f"worlds={len(ts)}  price-to-win: median {ts[len(ts) // 2]}, "
-            f"range {ts[0]}..{ts[-1]}",
-            f"est. win-prob: bid 0 → {values[0]:.2f}, "
-            f"bid {s['bid']} → {values[s['bid']]:.2f} (chosen)",
+            f"worlds={len(ts)}  price-to-win: median {median}, range {ts[0]}..{ts[-1]}",
+            f"est. win-prob: bid {chosen} → {values[chosen]:.2f} (chosen), "
+            f"bid {alt} → {values[alt]:.2f}",
         ]
         if self.identify:
             kinds = {

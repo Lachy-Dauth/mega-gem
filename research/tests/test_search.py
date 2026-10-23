@@ -182,6 +182,34 @@ class InferenceTest(unittest.TestCase):
         self.assertEqual(bot._seat_kind(2), "evo4")
 
 
+class CalibrationTest(unittest.TestCase):
+    def test_lowballer_produces_negative_residuals(self):
+        class HalfEvo4(Evo4AI):
+            def choose_bid(self, public_state, my_state, auction):
+                return super().choose_bid(public_state, my_state, auction) // 2
+
+        bot = _small("me", 4, calibrate=True, infer=True)
+        players = [bot] + [HalfEvo4(f"h{i}") for i in range(3)]
+        state = setup_game(players, chart="A", seed=12)
+        rng = random.Random(12)
+        for _ in range(8):
+            play_round(state, rng=rng)
+        residuals = [r for rs in bot._residuals.values() for r in rs]
+        self.assertTrue(residuals)
+        self.assertLess(sum(residuals), 0)
+        self.assertLessEqual(bot._sample_residual(1, "TreasureCard"), 0)
+
+    def test_exactly_predicted_bot_leaves_predictions_alone(self):
+        bot = _small("me", 4, calibrate=True, infer=True)
+        players = [bot] + [Evo4AI(f"e{i}") for i in range(3)]
+        state = setup_game(players, chart="A", seed=12)
+        rng = random.Random(12)
+        for _ in range(6):
+            play_round(state, rng=rng)
+        for seat in (1, 2, 3):
+            self.assertEqual(bot._sample_residual(seat, "TreasureCard"), 0)
+
+
 class HeadToHeadTest(unittest.TestCase):
     def test_beats_random_on_chart_a(self):
         wins = 0
