@@ -212,7 +212,7 @@ deductions, and grand totals.
 
 The live site is <https://lachy-dauth.github.io/mega-gem/>. It is a
 single-player client: you against 2–4 bots of your choice (any of
-Random, Heuristic, Evo1–Evo4), or a **Watch bots** spectator mode where
+Random, Heuristic, Evo1–Evo4 and the Search champion), or a **Watch bots** spectator mode where
 every hand is face-up and you can step or auto-play through a bot-only
 game. Turn on *Show bot reasoning* to see each AI's `explain_bid` output
 (features, head outputs, opponent-delta history) in the round log, the
@@ -567,7 +567,36 @@ Gem reveals don't change final values (every hand ends up in the Value
 Display), only what opponents learn; it uses `HeuristicAI`'s reveal
 rule. (Searching reveals with rollouts was tried and didn't help.)
 
-{{README_STRENGTH}}
+**Results** (win share with ties split, all five charts, seat rotated;
+an equal-strength bot would get 25% at a 4-player table):
+
+| Table | SearchAI | Fair share |
+|---|---|---|
+| vs 3× Evo4 (600 games) | **79.9% ± 1.6** | 25% |
+| vs 3× Evo3 | **85.5% ± 2.5** | 25% |
+| vs Heuristic + Evo3 + Evo4 | **86.8% ± 2.4** | 25% |
+| vs Evo2 + Evo1 + Heuristic | **86.5% ± 2.4** | 25% |
+| 3 players, vs 2× Evo4 | **90.0% ± 2.4** | 33% |
+| 5 players, vs 4× Evo4 | **82.7% ± 3.1** | 20% |
+
+For comparison, Evo4 wins about a quarter of games against copies of
+itself. Ablation (200 paired seeds each; the components stack):
+
+| Configuration | vs 3× Evo4 | vs 3× Evo3 |
+|---|---|---|
+| plain search (Evo4 models, no history) | 74.3% | 61.8% |
+| + shadow models | 76.7% | |
+| + hand inference | 79.0% | |
+| + opponent identification | 80.5% | 80.5%¹ |
+| + sniper rollouts (**standard**) | 84.0% | 85.5% |
+
+¹ identify + shadow, without inference. Identification matters most
+when the table isn't all Evo4: it lifts the mixed Heuristic/Evo3/Evo4
+table from 70.5% to 83.3% and 3× Heuristic from 76.7% to 95.9%. A paired
+400-seed test put the sniper at +5.0 ± 2.2 points. Worlds trade
+strength for time (12 → 72%, 24 → 80%, 48 → 82.5% at 1×/2×/4× cost);
+the sigmoid temperature (3, 6, 12) and searched reveals made no
+measurable difference. Runtime is ~0.2 s per bid in CPython.
 
 Construct it with `SearchAI.standard(name, seed=..., weights={...})`,
 where `weights` maps `evo1`..`evo4` to weight vectors for its internal

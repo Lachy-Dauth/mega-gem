@@ -358,8 +358,8 @@
     <div class="bots-page">
         <a href="./" class="back-link">&larr; Back to the game</a>
         <h1 style="font-size:clamp(28px,5vw,40px);margin-bottom:8px">The bot zoo</h1>
-        <p class="muted" style="margin:0 0 24px;font-size:16px">Every opponent on the Play page is one of these AIs, from a dice-roller to a 35-weight
-        policy tuned by a genetic algorithm. The engine, the bots, the GA tuners and the tests live in
+        <p class="muted" style="margin:0 0 24px;font-size:16px">Every opponent on the Play page is one of these AIs: a dice-roller, a hand-written
+        heuristic, four generations of policies tuned by a genetic algorithm, and Search AI, which plays the game forward before every bid. The engine, the bots, the GA tuners and the tests live in
         <a href="https://github.com/Lachy-Dauth/mega-gem/tree/main/research" target="_blank" rel="noopener"><code>research/</code></a>.</p>
 
         <!-- ===================== HEATMAP ===================== -->
@@ -977,7 +977,7 @@
                 <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                 <div class="bot-header">
                     <h3>Evo4 AI</h3>
-                    <div class="bot-difficulty">Hardest</div>
+                    <div class="bot-difficulty">Expert</div>
                 </div>
             </summary>
             <div class="bot-body">
@@ -1238,7 +1238,7 @@
                     like Evo3. It also keeps a <strong>shadow</strong> copy of each opponent's model that has
                     watched every round from that seat, so history-driven features (Evo3/Evo4's bid deltas and
                     colour signal) match the real opponent's. Identification is worth about
-                    {{IDENTIFY_GAIN}} points of win rate against non-Evo4 tables.
+                    13–19 points of win rate against non-Evo4 tables.
                 </p>
 
                 <div class="section-label">4. Find the price to win</div>
@@ -1251,8 +1251,10 @@
                 <div class="section-label">5. Play it out, twice</div>
                 <p>
                     From each world it plays the game to the end twice: once losing this auction, once winning
-                    it at exactly the price-to-win. Every seat plays its identified model (Search AI plays Evo4
-                    for its own future turns). Both branches share the world and the random seed, so the
+                    it at exactly the price-to-win. Every opponent replays the bid it was predicted to make,
+                    then plays on as its identified model. For its own future turns Search AI uses Evo4's
+                    valuation but pays only the price-to-win whenever Evo4 would have won anyway, which is
+                    much closer to how it really plays (worth about 5 points of win rate). Both branches share the world and the random seed, so the
                     comparison isolates this one decision. The result is scored as a sigmoid of the final margin
                     over the best opponent, a smooth stand-in for "did I win?".
                 </p>
@@ -1269,7 +1271,7 @@
                 <p>
                     Every hand ends up in the Value Display at the end anyway, so the final value of each colour
                     is fixed at the deal. A reveal only changes what opponents <em>believe</em> and when. Search
-                    AI uses the Heuristic AI's reveal rule. {{REVEAL_NOTE}}
+                    AI uses the Heuristic AI's reveal rule. Searching over reveals with rollouts was tried and made no measurable difference.
                 </p>
 
                 <div class="section-label">How strong is it?</div>
@@ -1280,7 +1282,12 @@
                 <table class="weight-table">
                     <thead><tr><th>Opponents</th><th>Search AI wins</th></tr></thead>
                     <tbody>
-                        {{STRENGTH_ROWS}}
+                        <tr><td>3× Evo4</td><td class="wt-value positive">80%</td></tr>
+                        <tr><td>3× Evo3</td><td class="wt-value positive">86%</td></tr>
+                        <tr><td>Heuristic + Evo3 + Evo4</td><td class="wt-value positive">87%</td></tr>
+                        <tr><td>Evo2 + Evo1 + Heuristic</td><td class="wt-value positive">87%</td></tr>
+                        <tr><td>2× Evo4 (3 players; fair share 33%)</td><td class="wt-value positive">90%</td></tr>
+                        <tr><td>4× Evo4 (5 players; fair share 20%)</td><td class="wt-value positive">83%</td></tr>
                     </tbody>
                 </table>
                 <p>

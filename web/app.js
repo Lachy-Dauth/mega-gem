@@ -606,7 +606,10 @@ function renderAction() {
     return;
   }
   if (game.busy) {
-    el.innerHTML = `<div class="waiting"><span class="spinner"></span>Bots are bidding…</div>`;
+    const searching = view.seat_kinds.includes("search");
+    el.innerHTML = `<div class="waiting"><span class="spinner"></span>${searching
+      ? "Bots are bidding… Search bots play out dozens of possible futures first."
+      : "Bots are bidding…"}</div>`;
     return;
   }
   if (view.phase === "bid") return renderBid(el);
