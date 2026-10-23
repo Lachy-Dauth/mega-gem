@@ -59,7 +59,7 @@ import copy
 import math
 import random
 from collections import Counter
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
 from ..cards import AuctionCard, Color, GemCard, TreasureCard
 from ..engine import (
@@ -78,9 +78,6 @@ from .evo4 import Evo4AI
 from .heuristic import HeuristicAI
 from .hyper_adaptive_split import HyperAdaptiveSplitAI
 from .random_ai import RandomAI
-
-if TYPE_CHECKING:
-    pass
 
 
 ModelFactory = Callable[[str, int], Player]
@@ -135,7 +132,7 @@ class _Sniper(Player):
 
     def choose_bid(self, public_state, my_state, auction) -> int:
         bid = self._inner.choose_bid(public_state, my_state, auction)
-        me = public_state.player_states.index(my_state)
+        me = next(i for i, ps in enumerate(public_state.player_states) if ps is my_state)
         opp = {
             j: max(0, min(int(p.choose_bid(public_state, ps, auction)), max_legal_bid(ps, auction)))
             for j, (p, ps) in enumerate(zip(public_state.players, public_state.player_states))
@@ -310,9 +307,9 @@ class SearchAI(Player):
         self,
         state: GameState,
         my_idx: int,
-        auction: AuctionCard,
         rng: random.Random,
     ) -> tuple[list[list[GemCard]], list[GemCard], list[AuctionCard]]:
+        """Deal the unseen pool into opponents' hands + deck; shuffle auctions."""
         me = state.player_states[my_idx]
         pool = [_GEM[c] for c in unseen_pool(state, me)]
         rng.shuffle(pool)
@@ -407,27 +404,8 @@ class SearchAI(Player):
         return hands, [filler] * len(state.gem_deck), list(state.auction_deck)
 
     # ------------------------------------------------------------------
-    # Shadow opponent models
+    # Opponent models: identification and shadows
     # ------------------------------------------------------------------
-
-    def _sample_residual(self, seat: int, category: str) -> int:
-        """A recent "actual − predicted" bid error for this seat, so worlds
-        reflect how far off (and how erratic) the model has been.
-
-        Gated: only a seat that missed the model's range at least
-        ``calibration_gate`` times in its last 8 bids gets shifted. The
-        zoo bots are predicted near-exactly, and the odd ±1 slip isn't
-        worth injecting noise for (an ungated version cost ~3 points
-        against them); lowballers, overbidders and erratic bidders trip
-        the gate within a couple of rounds.
-        """
-        recent = self._residuals.get((seat, category), [])[-8:]
-        if len(recent) < 2:
-            # Too little history for this auction kind: borrow from all kinds.
-            recent = [r for (j, _), rs in self._residuals.items() if j == seat for r in rs[-8:]]
-        if sum(1 for r in recent if r) < max(1, self.calibration_gate):
-            return 0
-        return self._rng.choice(recent)
 
     def _seat_kind(self, seat: int) -> str:
         """Most likely model for ``seat`` (the bank's first entry until evidence)."""
@@ -469,7 +447,7 @@ class SearchAI(Player):
         self._pending_calibration = None
         if not (self.identify or self.shadow or self.calibrate):
             return
-        samples = [self._deal_world(state, my_idx, auction, self._aux_rng) for _ in range(4)]
+        samples = [self._deal_world(state, my_idx, self._aux_rng) for _ in range(4)]
         scratches = [self._build_state(state, [], *smp) for smp in samples]
         preds: dict[int, dict[str, list[int]]] = {}
         for j in range(state.num_players):
@@ -566,13 +544,36 @@ class SearchAI(Player):
 
     def _sample_worlds(self, state: GameState, my_idx: int, auction: AuctionCard):
         if not (self.infer and self._bid_records):
-            return [self._deal_world(state, my_idx, auction, self._rng) for _ in range(self.worlds)]
+            return [self._deal_world(state, my_idx, self._rng) for _ in range(self.worlds)]
         candidates = [
-            self._deal_world(state, my_idx, auction, self._rng)
+            self._deal_world(state, my_idx, self._rng)
             for _ in range(self.worlds * 8)
         ]
         weights = [self._world_weight(c[0]) for c in candidates]
         return self._rng.choices(candidates, weights=weights, k=self.worlds)
+
+    # ------------------------------------------------------------------
+    # Calibration
+    # ------------------------------------------------------------------
+
+    def _sample_residual(self, seat: int, category: str) -> int:
+        """A recent "actual − predicted" bid error for this seat, so worlds
+        reflect how far off (and how erratic) the model has been.
+
+        Gated: only a seat that missed the model's range at least
+        ``calibration_gate`` times in its last 8 bids gets shifted. The
+        zoo bots are predicted near-exactly, and the odd ±1 slip isn't
+        worth injecting noise for (an ungated version cost ~3 points
+        against them); lowballers, overbidders and erratic bidders trip
+        the gate within a couple of rounds.
+        """
+        recent = self._residuals.get((seat, category), [])[-8:]
+        if len(recent) < 2:
+            # Too little history for this auction kind: borrow from all kinds.
+            recent = [r for (j, _), rs in self._residuals.items() if j == seat for r in rs[-8:]]
+        if sum(1 for r in recent if r) < max(1, self.calibration_gate):
+            return 0
+        return self._rng.choice(recent)
 
     # ------------------------------------------------------------------
     # Search
@@ -712,7 +713,7 @@ class SearchAI(Player):
         )
         totals = dict.fromkeys(colors, 0.0)
         for _ in range(max(4, self.worlds // 2)):
-            hands, gem_deck, auctions = self._deal_world(public_state, my_idx, None, self._rng)
+            hands, gem_deck, auctions = self._deal_world(public_state, my_idx, self._rng)
             seed = self._rng.randrange(2**31)
             for c in colors:
                 totals[c] += self._reveal_rollout(public_state, my_idx, hands, gem_deck, auctions, c, seed)
