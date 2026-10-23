@@ -26,9 +26,26 @@ SearchAI instead *plays the game forward*:
    final margin over the best opponent (a smooth win probability), and
    the best average wins.
 
+The opponent model is what makes the thresholds accurate. Each layer is
+a constructor flag (all on in :meth:`SearchAI.standard`):
+
+* ``identify`` — score a bank of zoo bots against each seat's bids and
+  model each seat by its most likely bot.
+* ``shadow`` — keep a copy of every (seat, model) that watches the real
+  game, so history-driven features (Evo3/Evo4) match the real opponent.
+* ``infer`` — on treasure rounds, tabulate each opponent's bid for every
+  hand they could hold; weight worlds by how well their hands explain
+  every bid so far.
+* ``calibrate`` — for a seat no model fits (a lowballer, an erratic
+  human), add that seat's recent "actual − predicted" errors to its
+  predicted bids.
+* ``rollout_snipe`` — in rollouts, my own future turns pay only the
+  threshold whenever the rollout policy would win anyway.
+
 Gem reveals don't change final values (every hand ends up in the Value
 Display), only what opponents learn and when; SearchAI reuses
-:class:`HeuristicAI`'s reveal rule.
+:class:`HeuristicAI`'s reveal rule (``reveal_search`` tries rollouts
+instead, which measured no better).
 
 All randomness comes from ``seed``, so a seeded SearchAI is
 reproducible. Like the GA bots, the rollout/opponent model weights are
@@ -197,6 +214,7 @@ class SearchAI(Player):
         reveal_search: bool = False,
         rollout_snipe: bool = False,
         calibrate: bool = False,
+        calibration_gate: int = 2,
         model_bank: dict[str, ModelFactory] | None = None,
         identify: bool = False,
     ) -> None:
@@ -225,6 +243,7 @@ class SearchAI(Player):
         # Calibration: per (seat, auction kind) history of
         # "actual bid − model prediction", for opponents no model fits.
         self.calibrate = calibrate
+        self.calibration_gate = calibration_gate
         self._residuals: dict[tuple[int, str], list[int]] = {}
         self._pending_calibration: dict[int, tuple[str, int, int]] | None = None
         self._shadows: dict[tuple[int, str], Player] = {}
@@ -278,6 +297,7 @@ class SearchAI(Player):
             shadow=True,
             infer=True,
             rollout_snipe=True,
+            calibrate=True,
         )
         options.update(overrides)
         return cls(name, **options)
@@ -392,13 +412,20 @@ class SearchAI(Player):
 
     def _sample_residual(self, seat: int, category: str) -> int:
         """A recent "actual − predicted" bid error for this seat, so worlds
-        reflect how far off the model has been. All-zero history (a bot the
-        model predicts exactly) leaves predictions untouched."""
+        reflect how far off (and how erratic) the model has been.
+
+        Gated: only a seat that missed the model's range at least
+        ``calibration_gate`` times in its last 8 bids gets shifted. The
+        zoo bots are predicted near-exactly, and the odd ±1 slip isn't
+        worth injecting noise for (an ungated version cost ~3 points
+        against them); lowballers, overbidders and erratic bidders trip
+        the gate within a couple of rounds.
+        """
         recent = self._residuals.get((seat, category), [])[-8:]
         if len(recent) < 2:
             # Too little history for this auction kind: borrow from all kinds.
             recent = [r for (j, _), rs in self._residuals.items() if j == seat for r in rs[-8:]]
-        if not any(recent):
+        if sum(1 for r in recent if r) < max(1, self.calibration_gate):
             return 0
         return self._rng.choice(recent)
 
