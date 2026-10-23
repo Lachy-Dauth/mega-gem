@@ -125,6 +125,36 @@ class ReplayTest(unittest.TestCase):
         self.assertEqual(first[2]["ai_class"], "Evo4AI")
 
 
+class SearchSeatReplayTest(unittest.TestCase):
+    def test_replay_with_a_search_bot_matches_the_engine(self):
+        """SearchAI carries RNGs, shadows and inference records; the
+        snapshot-and-replay must reproduce its bids exactly."""
+        seats = [{"kind": "human", "name": "You"}, {"kind": "search", "name": "S"},
+                 {"kind": "evo4", "name": "E"}, {"kind": "heuristic", "name": "H"}]
+        session = BrowserSession(seats, chart="A", seed=4)
+        view = session.start()
+        reveals = 0
+        for _ in range(3):
+            if view["phase"] == "bid":
+                view = session.bid(99)  # always outbid, so reveals happen
+            if view["phase"] == "reveal":
+                reveals += 1
+                view = session.reveal(view["state"]["players"][0]["hand"][0])
+
+        seat_rng = random.Random(4)
+        players = [ScriptedHuman("You", 99)]
+        for seat in seats[1:]:
+            players.append(AI_FACTORIES[seat["kind"]](
+                seat["name"], seed=seat_rng.randrange(2**31),
+                num_players=4, weights_dir=DEFAULT_WEIGHTS_DIR,
+            ))
+        state = setup_game(players, chart="A", seed=4)
+        rng = random.Random(4)
+        bids = [play_round(state, rng=rng)["bids"] for _ in session.history]
+        self.assertGreater(reveals, 0)
+        self.assertEqual([r["bids"] for r in session.history], bids)
+
+
 class SessionGuardTest(unittest.TestCase):
     def test_rejects_out_of_phase_calls(self):
         session = BrowserSession(SEATS, seed=1)
