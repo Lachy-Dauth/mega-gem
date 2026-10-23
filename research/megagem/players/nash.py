@@ -30,12 +30,13 @@ values, not of the whole game, but it carries no per-opponent state and
 is stochastic by design, which is what makes it hard to exploit (README
 §12 has the exploitability measurements).
 
-**Restricted Nash response** (``model_weight=α``, default 0.5): in the
+**Restricted Nash response** (``model_weight=α``, default 0.75): in the
 solver each opponent plays what the rollout policy (Evo4) would bid
 with probability α, and best-responds otherwise. α = 0 is the pure
 equilibrium bot; α > 0 exploits Evo4-like underbidding. In measurement
-α = 0.5 was far stronger against the zoo and statistically as hard to
-exploit as α = 0.
+α = 0.75 was far stronger against the zoo and statistically as hard to
+exploit as α = 0: its bids stay mixed, so the exploiter still can't
+predict them.
 
 Reveals reuse :class:`HeuristicAI`'s rule (reveals don't change final
 values; every hand ends up in the Value Display).
@@ -81,9 +82,9 @@ class NashAI(Player):
     DEFAULT_ITERATIONS = 150
     DEFAULT_TEMPERATURE = 6.0
     # Restricted Nash response weight: each opponent plays the model's bid
-    # with this probability. 0.5 was the strongest setting measured, and
-    # its exploitability was statistically indistinguishable from 0.
-    DEFAULT_MODEL_WEIGHT = 0.5
+    # with this probability. 0.75 was much stronger against the zoo than
+    # 0, 0.25 or 0.5, and its exploitability was statistically the same.
+    DEFAULT_MODEL_WEIGHT = 0.75
     # Ignore bids above this (never sensible; bounds the solver's cost).
     MAX_BID = 40
 
