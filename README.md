@@ -673,7 +673,32 @@ the strategy, not the coin flips; shadow copies track targets with
 per-game history). Exploitability = its win share minus the fair 25%. A
 Nash equilibrium would score 0.
 
-{{NASH_EXPLOIT}}
+| Target (3 copies) | Exploiter wins | Exploitability |
+|---|---|---|
+| HeuristicAI | 96.0% | +0.71 |
+| Evo4AI | 64.5% ± 4.8 | +0.40 |
+| SearchAI | 60.8% ± 6.3 | +0.36 |
+| NashAI, pure (α = 0) | 39.9% ± 4.5 | +0.15 |
+| **NashAI (default, α = 0.75)** | **41.6% ± 4.5** | **+0.17** |
+
+(6-world exploiter, seats rotated, 60–120 games; Heuristic used an
+8-world exploiter.) SearchAI beats the zoo by exploiting deterministic
+bots, and that's exactly why it's nearly as exploitable as Evo4. NashAI's
+bids come from a mixed strategy, so even a perfect model of it only
+yields a bid distribution, not a bid to beat by one.
+
+Head to head, in practice:
+
+| Table | Win share |
+|---|---|
+| SearchAI vs 3× Evo4 | 79.6% |
+| SearchAI vs 3× NashAI (pure) | 44.5% ± 5.0 |
+| SearchAI vs 3× NashAI (α = 0.75) | **33.8% ± 4.7** |
+| NashAI (pure) vs 3× SearchAI | 24.0% ± 4.3 |
+| NashAI (α = 0.75) vs 3× SearchAI | **28.3% ± 4.5** |
+
+For comparison, in the heatmap every GA bot wins 12% or less against 3×
+SearchAI.
 
 **Restricted Nash response.** `model_weight=α` forces each opponent,
 with probability α, to play what a model (the rollout policy, Evo4)
@@ -681,7 +706,22 @@ would bid, and lets it best-respond otherwise (Johanson et al.'s
 restricted Nash response). α = 0 is the pure equilibrium bot. Raising α
 exploits Evo4-like opponents more and becomes more exploitable itself:
 
-{{NASH_RNR}}
+| α | vs 3× Evo4 | vs 3× "lowballers" | Exploiter wins vs 3× it |
+|---|---|---|---|
+| 0 (pure equilibrium) | 20.8% | | 39.9% (120 games) |
+| 0.25 | 32.1% | | 48.3% (60) |
+| 0.5 | 36.2% | | 39.7% (60) |
+| **0.75 (default)** | **50.8%** | **41.2%** | **41.6% (120)** |
+| 1.0 (pure model response) | 57.8% | 33.8% | 30.0% (60) |
+
+(120 games per strength cell, all on the same seeds.) Strength against
+Evo4 rises steadily with α, while the exploitability differences between
+α values are all within noise. Every setting stays far below Evo4 and
+SearchAI, because the bids remain mixed. The cost of α = 1 shows up
+against opponents the model *doesn't* fit. Against "lowballers" (Evo4
+bidding half its usual amount, see §11), α = 0.75 beats α = 1 by
+7.5 ± 5.0 points, mirroring the 6.9 ± 4.4 that α = 1 gains against
+real Evo4s. A human is never exactly Evo4, so 0.75 is the default.
 
 ---
 

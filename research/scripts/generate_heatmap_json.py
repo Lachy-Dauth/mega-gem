@@ -31,6 +31,7 @@ from megagem.players import (
     Evo4AI,
     HeuristicAI,
     HyperAdaptiveSplitAI,
+    NashAI,
     RandomAI,
     SearchAI,
 )
@@ -95,6 +96,9 @@ def make_factories() -> dict:
     search_weights = {k: _load_evo_weights(k) for k in ("evo1", "evo2", "evo3", "evo4")}
     factories["Search"] = lambda name, seed: SearchAI.standard(
         name, seed=seed, weights=search_weights
+    )
+    factories["Nash"] = lambda name, seed: NashAI(
+        name, seed=seed, model_weights=search_weights["evo4"]
     )
 
     return factories

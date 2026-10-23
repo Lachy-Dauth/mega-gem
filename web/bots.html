@@ -1375,10 +1375,14 @@
                 <table class="weight-table">
                     <thead><tr><th>Target (3 copies)</th><th>Exploiter wins</th></tr></thead>
                     <tbody>
-                        {{EXPLOIT_ROWS}}
+                        <tr><td class="wt-name">Heuristic</td><td class="wt-value">96%</td></tr>
+                        <tr><td class="wt-name">Evo4</td><td class="wt-value">65%</td></tr>
+                        <tr><td class="wt-name">Search AI</td><td class="wt-value">61%</td></tr>
+                        <tr><td class="wt-name">Nash AI (pure equilibrium)</td><td class="wt-value">40%</td></tr>
+                        <tr><td class="wt-name">Nash AI (default)</td><td class="wt-value">42%</td></tr>
                     </tbody>
                 </table>
-                <p>{{NASH_STRENGTH}}</p>
+                <p>Nash AI is not the strongest bot. Search AI still beats it head to head. But it is the hardest one to exploit, and it holds its own at any table: it wins about half its games against three Evo4s, and Search AI wins only 34% against three Nash bots (it wins 80% against three Evo4s). Every number here comes from 100&ndash;120 games, so treat it as accurate to about &plusmn;5 points.</p>
             </div>
         </details>
     </div>

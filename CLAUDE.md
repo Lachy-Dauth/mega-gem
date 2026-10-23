@@ -27,7 +27,7 @@ mega-gem/
 ```bash
 cd research
 
-# Tests (stdlib unittest, no pytest, 132 tests, ~2s)
+# Tests (stdlib unittest, no pytest, 146 tests, ~10s)
 python -m unittest discover
 python -m unittest tests.test_heuristic -v
 python -m unittest tests.test_evo2 -v
