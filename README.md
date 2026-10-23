@@ -706,22 +706,25 @@ would bid, and lets it best-respond otherwise (Johanson et al.'s
 restricted Nash response). α = 0 is the pure equilibrium bot. Raising α
 exploits Evo4-like opponents more and becomes more exploitable itself:
 
-| α | vs 3× Evo4 | vs 3× "lowballers" | Exploiter wins vs 3× it |
-|---|---|---|---|
-| 0 (pure equilibrium) | 20.8% | | 39.9% (120 games) |
-| 0.25 | 32.1% | | 48.3% (60) |
-| 0.5 | 36.2% | | 39.7% (60) |
-| **0.75 (default)** | **50.8%** | **41.2%** | **41.6% (120)** |
-| 1.0 (pure model response) | 57.8% | 33.8% | 30.0% (60) |
+| α | vs 3× Evo4 | vs 3× "lowballers" | vs 3× SearchAI | Exploiter wins vs 3× it |
+|---|---|---|---|---|
+| 0 (pure equilibrium) | 20.8% | | 24.0% | 39.9% (120 games) |
+| 0.25 | 32.1% | | | 48.3% (60) |
+| 0.5 | 36.2% | | | 39.7% (60) |
+| **0.75 (default)** | **50.8%** | **41.2%** | **28.3%** | **41.6% (120)** |
+| 1.0 (pure model response) | 57.8% | 33.8% | 22.0% | 30.0% (60) |
 
-(120 games per strength cell, all on the same seeds.) Strength against
+(120 games per Evo4/lowballer cell and 100 per SearchAI cell, each column
+on the same seeds.) Strength against
 Evo4 rises steadily with α, while the exploitability differences between
 α values are all within noise. Every setting stays far below Evo4 and
 SearchAI, because the bids remain mixed. The cost of α = 1 shows up
 against opponents the model *doesn't* fit. Against "lowballers" (Evo4
 bidding half its usual amount, see §11), α = 0.75 beats α = 1 by
 7.5 ± 5.0 points, mirroring the 6.9 ± 4.4 that α = 1 gains against
-real Evo4s. A human is never exactly Evo4, so 0.75 is the default.
+real Evo4s. Against SearchAI, which isn't Evo4 either, α = 1 also
+trails (by 6.3 ± 5.4 points, within noise). A human is never exactly
+Evo4, so 0.75 is the default.
 
 ---
 
