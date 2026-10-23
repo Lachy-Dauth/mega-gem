@@ -42,6 +42,7 @@ from .heuristic import HeuristicAI
 from .human import HumanPlayer
 from .hyper_adaptive_split import HyperAdaptiveSplitAI, _BidModel
 from .random_ai import RandomAI
+from .nash import NashAI
 from .search import SearchAI
 
 __all__ = [
@@ -51,6 +52,7 @@ __all__ = [
     "HeuristicAI",
     "HumanPlayer",
     "HyperAdaptiveSplitAI",
+    "NashAI",
     "Player",
     "RandomAI",
     "SearchAI",

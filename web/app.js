@@ -19,6 +19,7 @@ const CHARTS = {
 // Strongest first. Keys match megagem.browser.AI_FACTORIES.
 const BOTS = [
   { kind: "search", label: "Search", tier: "Champion" },
+  { kind: "nash", label: "Nash", tier: "Equilibrium" },
   { kind: "evo4", label: "Evo4", tier: "Expert" },
   { kind: "evo3", label: "Evo3", tier: "Very hard" },
   { kind: "evo2", label: "Evo2", tier: "Hard" },
@@ -606,9 +607,9 @@ function renderAction() {
     return;
   }
   if (game.busy) {
-    const searching = view.seat_kinds.includes("search");
-    el.innerHTML = `<div class="waiting"><span class="spinner"></span>${searching
-      ? "Bots are bidding… Search bots play out dozens of possible futures first."
+    const thinking = view.seat_kinds.some((k) => k === "search" || k === "nash");
+    el.innerHTML = `<div class="waiting"><span class="spinner"></span>${thinking
+      ? "Bots are bidding… Search and Nash bots play out dozens of possible futures first."
       : "Bots are bidding…"}</div>`;
     return;
   }

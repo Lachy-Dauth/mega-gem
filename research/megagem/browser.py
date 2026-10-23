@@ -46,6 +46,7 @@ from .players import (
     HeuristicAI,
     HyperAdaptiveSplitAI,
     Player,
+    NashAI,
     RandomAI,
     SearchAI,
 )
@@ -115,6 +116,10 @@ def _search_factory(name: str, *, seed: int, num_players: int, weights_dir: Path
     return SearchAI.standard(name, seed=seed, weights=weights)
 
 
+def _nash_factory(name: str, *, seed: int, num_players: int, weights_dir: Path) -> Player:
+    return NashAI(name, seed=seed, model_weights=_load_evo_weights(weights_dir, "evo4", num_players))
+
+
 # Keys match the CLI's ``AI_FACTORIES`` so docs and the browser share
 # vocabulary. Missing weights fall back to class defaults, never an error.
 AI_FACTORIES: dict[str, Callable[..., Player]] = {
@@ -125,6 +130,7 @@ AI_FACTORIES: dict[str, Callable[..., Player]] = {
     "evo3": _evo_factory("evo3", Evo3AI),
     "evo4": _evo_factory("evo4", Evo4AI),
     "search": _search_factory,
+    "nash": _nash_factory,
 }
 
 AI_KINDS = tuple(AI_FACTORIES)

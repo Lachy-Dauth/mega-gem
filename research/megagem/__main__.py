@@ -21,6 +21,7 @@ from .players import (
     HyperAdaptiveSplitAI,
     Player,
     RandomAI,
+    NashAI,
     SearchAI,
 )
 
@@ -138,6 +139,11 @@ def _search_factory(name: str, *, seed: int, num_players: int) -> Player:
     return SearchAI.standard(name, seed=seed, weights=weights)
 
 
+def _nash_factory(name: str, *, seed: int, num_players: int) -> Player:
+    """NashAI with Evo4's checked-in weights as its rollout policy."""
+    return NashAI(name, seed=seed, model_weights=_load_evo_weights("evo4", num_players))
+
+
 AI_FACTORIES: dict[str, AIFactory] = {
     "random":     lambda name, *, seed, num_players: RandomAI(name, seed=seed),
     "heuristic":  lambda name, *, seed, num_players: HeuristicAI(name, seed=seed),
@@ -146,6 +152,7 @@ AI_FACTORIES: dict[str, AIFactory] = {
     "evo3":       _evo3_factory,
     "evo4":       _evo4_factory,
     "search":     _search_factory,
+    "nash":       _nash_factory,
 }
 
 
@@ -200,7 +207,9 @@ def main(argv: list[str] | None = None) -> int:
                         help=("Which AI to use for opponents (and --all-ai players). "
                               "`evolved`, `evo2`, `evo3`, and `evo4` load GA-tuned "
                               "weights from saved_best_weights/. `search` is the "
-                              "Monte Carlo SearchAI (strongest, ~0.3s per bid)."))
+                              "Monte Carlo SearchAI (strongest, ~0.3s per bid); `nash` "
+                              "bids from an equilibrium of each auction (hardest to "
+                              "exploit, ~0.5s per bid)."))
     args = parser.parse_args(argv)
 
     players = build_players(args.players, args.all_ai, args.debug, args.seed, args.ai)

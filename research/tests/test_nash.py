@@ -121,5 +121,15 @@ class PlayTest(unittest.TestCase):
         self.assertEqual(bot.choose_bid(state, me, auction), explained)
 
 
+class FactoryTest(unittest.TestCase):
+    def test_cli_and_browser_build_nash(self):
+        from megagem.__main__ import AI_FACTORIES as CLI
+        from megagem.browser import AI_FACTORIES as WEB, DEFAULT_WEIGHTS_DIR
+
+        self.assertIsInstance(CLI["nash"]("n", seed=1, num_players=4), NashAI)
+        bot = WEB["nash"]("n", seed=1, num_players=3, weights_dir=DEFAULT_WEIGHTS_DIR)
+        self.assertIsInstance(bot, NashAI)
+
+
 if __name__ == "__main__":
     unittest.main()
