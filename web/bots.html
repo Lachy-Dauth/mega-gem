@@ -1241,7 +1241,7 @@
                     13–19 points of win rate against non-Evo4 tables.
                 </p>
 
-                <div class="section-label">Reading players it can't model</div>
+                <div class="section-label">4. Spot players it can't model</div>
                 <p>
                     Humans don't bid like any bot. Early versions of Search AI had a blind spot: against
                     players who consistently bid about half of what Evo4 would, it kept expecting the
@@ -1253,14 +1253,14 @@
                     changes.
                 </p>
 
-                <div class="section-label">4. Find the price to win</div>
+                <div class="section-label">5. Find the price to win</div>
                 <p>
                     Bids are sealed and simultaneous, so in a given world its own bid can't change anyone
                     else's. Each world therefore collapses to a single number: the cheapest bid that wins,
                     following the real tie-break rule (closest seat to the left of the last winner).
                 </p>
 
-                <div class="section-label">5. Play it out, twice</div>
+                <div class="section-label">6. Play it out, twice</div>
                 <p>
                     From each world it plays the game to the end twice: once losing this auction, once winning
                     it at exactly the price-to-win. Every opponent replays the bid it was predicted to make,
@@ -1271,7 +1271,7 @@
                     over the best opponent, a smooth stand-in for "did I win?".
                 </p>
 
-                <div class="section-label">6. Choose the bid</div>
+                <div class="section-label">7. Choose the bid</div>
                 <p>
                     For every legal bid <code>b</code>, worlds whose price-to-win is above <code>b</code> score
                     their lose branch; the rest score their win branch, minus whatever it overpaid. The best
@@ -1304,8 +1304,8 @@
                     </tbody>
                 </table>
                 <p>
-                    It costs about {{BID_TIME}} per bid in the browser, so a table of three Search bots takes a
-                    few seconds a round. The engine is still the same Python, running in your browser.
+                    It takes about half a second to a second per bid in the browser, so against three Search bots
+                    each round takes a couple of seconds. The engine is still the same Python, running in your browser.
                 </p>
 
                 <div class="section-label">Why it exists</div>
