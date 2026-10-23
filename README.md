@@ -342,8 +342,9 @@ class Player(ABC):
 card; `choose_gem_to_reveal` is called only on the winner each round to
 pick which gem from their hand goes into the public value display;
 `observe_round` is an optional post-round hook that lets an AI update
-internal state (Evo3 uses it to log opponent-bid deltas — see §9 —
-and Evo4 uses it to update its per-color gem-inference signal — §10).
+internal state: Evo3 logs opponent-bid deltas (§9), Evo4 updates its
+per-color gem-inference signal (§10), and SearchAI identifies opponents
+and infers their hands (§11).
 
 Shared value-estimation math (`_expected_final_display`,
 `_treasure_value`, the `_hyper_*` family, `_compute_discount_features`,
@@ -522,6 +523,61 @@ Defaults zero the new outer weights and seed the internal predictor
 with the Evo2 champion, so a freshly constructed `Evo4AI()`
 reproduces Evo3 behaviour exactly until the GA lights up any of the
 new weights.
+
+### 11. `SearchAI` — `megagem/players/search.py`
+
+**The current champion**, and a different kind of bot: there is no bid
+formula. Before every bid it *plays the rest of the game forward* in a
+few dozen sampled worlds and picks the bid that wins most often
+(determinized Monte Carlo search). `--ai search` in the CLI; "Search" on
+the website.
+
+1. **Sample worlds.** The only hidden information is how the unseen
+   gems split between opponents' hands and the gem deck, plus the order
+   of the remaining auction cards (`unseen_pool` derives the pool from
+   public information only). Each world deals that pool into hands and
+   a deck of the right sizes and shuffles the auction deck.
+2. **Infer hands from bids** (`infer`). On treasure rounds it predicts
+   each opponent's bid for every hand composition they could hold (at
+   most 70), and once bids are public keeps a likelihood table per
+   (seat, round). Worlds are importance-sampled by how well their hands
+   explain every past bid, with gems revealed since then added back. A
+   floor on each likelihood keeps a model mismatch (or a human) from
+   zeroing out the true world.
+3. **Identify opponents** (`identify`). A bank of model bots (Random,
+   Heuristic, Evo1–Evo4) is scored against each seat's bids; each seat
+   is then modelled by its most likely bot. **Shadow** copies of every
+   (seat, model) watch the real game, so Evo3/Evo4 history features
+   (bid deltas, colour signal) match the real opponent's (`shadow`).
+4. **Price to win.** Bids are sealed and simultaneous, so in a world
+   its own bid can't change anyone else's. Each world collapses to one
+   threshold: the cheapest winning bid under the engine's tie-break.
+5. **Two rollouts per world**, lose vs win-at-threshold, sharing the
+   world and RNG seed. Opponents replay exactly the predicted bids for
+   this round, then continue as their seat models. Its own future turns
+   use a *sniper* rollout policy (`rollout_snipe`): Evo4's valuation,
+   but paying only the threshold when Evo4 would win anyway, which is
+   closer to how SearchAI itself plays. Outcomes are scored as a sigmoid
+   of the final margin over the best opponent.
+6. **Choose.** For each legal bid `b`, worlds with threshold > `b`
+   score their lose branch and the rest their win branch, minus the
+   overpayment `b − threshold`. Highest average wins.
+
+Gem reveals don't change final values (every hand ends up in the Value
+Display), only what opponents learn; it uses `HeuristicAI`'s reveal
+rule. (Searching reveals with rollouts was tried and didn't help.)
+
+{{README_STRENGTH}}
+
+Construct it with `SearchAI.standard(name, seed=..., weights={...})`,
+where `weights` maps `evo1`..`evo4` to weight vectors for its internal
+models (`None` → class defaults). The CLI and web client pass their
+loaded `saved_best_weights/`. Every component is a constructor flag
+(`infer`, `shadow`, `identify`, `rollout_snipe`, `reveal_search`,
+`worlds`, `temperature`) so it's easy to ablate. It is reproducible
+for a fixed `seed`, and never reads hidden state:
+`tests/test_search.py::NoPeekingTest` reshuffles the real hidden cards
+and checks the bid doesn't change.
 
 ---
 

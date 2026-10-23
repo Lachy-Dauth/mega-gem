@@ -134,6 +134,33 @@ class _Sniper(Player):
         self._inner.observe_round(public_state, my_idx, result)
 
 
+class _RoundMemo(Player):
+    """Caches ``inner``'s bid for the current round.
+
+    The sniper asks every opponent for its bid before the engine does;
+    bids are deterministic given the (unchanged) state, so the engine's
+    own call can reuse the answer instead of recomputing it.
+    """
+
+    def __init__(self, inner: Player) -> None:
+        super().__init__(inner.name)
+        self._inner = inner
+        self._round = -1
+        self._bid = 0
+
+    def choose_bid(self, public_state, my_state, auction) -> int:
+        if self._round != public_state.round_number:
+            self._bid = self._inner.choose_bid(public_state, my_state, auction)
+            self._round = public_state.round_number
+        return self._bid
+
+    def choose_gem_to_reveal(self, public_state, my_state) -> GemCard:
+        return self._inner.choose_gem_to_reveal(public_state, my_state)
+
+    def observe_round(self, public_state, my_idx, result) -> None:
+        self._inner.observe_round(public_state, my_idx, result)
+
+
 def unseen_pool(state: GameState, my_state: PlayerState) -> list[Color]:
     """Colours of every gem I can't see: opponents' hands + the gem deck."""
     seen: Counter = Counter(g.color for g in my_state.hand)
@@ -244,6 +271,7 @@ class SearchAI(Player):
             identify=True,
             shadow=True,
             infer=True,
+            rollout_snipe=True,
         )
         options.update(overrides)
         return cls(name, **options)
@@ -520,6 +548,8 @@ class SearchAI(Player):
         for i, model in enumerate(models):
             if i != my_idx:
                 players[i] = _Scripted(_clone(model), opp_bids[i], None)
+                if self.rollout_snipe:
+                    players[i] = _RoundMemo(players[i])
         players[my_idx] = _Scripted(players[my_idx], my_bid, self._revealer)
         if self.rollout_snipe:
             players[my_idx]._inner = _Sniper(players[my_idx]._inner, self._threshold)

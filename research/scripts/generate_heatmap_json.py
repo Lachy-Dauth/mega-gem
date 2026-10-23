@@ -9,8 +9,10 @@ a JSON file instead of a matplotlib image. Run from research/:
 Writes to ../web/heatmap_data.json. Games run in parallel (one process
 per core by default); results are identical to a serial run because
 every game is fully determined by its (row, column, chart, seed).
-SearchAI cells dominate the runtime: a Search column seats three
-search bots per game.
+SearchAI cells dominate the runtime (a Search column seats three search
+bots per game; the full matrix takes ~1.5h on 4 cores), so finished
+cells are checkpointed to artifacts/heatmap_cells.json and skipped when
+the script is re-run. Pass --fresh to discard the checkpoint.
 """
 
 from __future__ import annotations
@@ -131,7 +133,16 @@ def _play_cell_game(job: tuple[str, str, str, int]) -> tuple[str, str, bool]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
+    parser.add_argument("--fresh", action="store_true", help="ignore the checkpoint")
     args = parser.parse_args()
+
+    checkpoint = Path("artifacts/heatmap_cells.json")
+    signature = f"{CHARTS}|{SEED_START}|{GAMES_PER_CHART}"
+    cells: dict[str, float] = {}
+    if checkpoint.exists() and not args.fresh:
+        saved = json.loads(checkpoint.read_text())
+        if saved.get("signature") == signature:
+            cells = saved["cells"]
 
     names = list(make_factories().keys())
     n = len(names)
@@ -142,9 +153,12 @@ def main() -> None:
         (row, col, chart, s)
         for row in names
         for col in names
+        if f"{row}|{col}" not in cells
         for chart in CHARTS
         for s in range(SEED_START, SEED_START + GAMES_PER_CHART)
     ]
+    if cells:
+        print(f"  resuming: {len(cells)} cells already in {checkpoint}")
     wins = {(r, c): 0 for r in names for c in names}
     done = {(r, c): 0 for r in names for c in names}
     with Pool(args.jobs, initializer=_init_worker) as pool:
@@ -152,10 +166,13 @@ def main() -> None:
             wins[row, col] += won
             done[row, col] += 1
             if done[row, col] == total_games:
+                cells[f"{row}|{col}"] = round(wins[row, col] / total_games, 3)
+                checkpoint.parent.mkdir(parents=True, exist_ok=True)
+                checkpoint.write_text(json.dumps({"signature": signature, "cells": cells}))
                 print(f"  {row:>13} vs 3x {col:<13} = {wins[row, col] / total_games * 100:5.1f}%",
                       flush=True)
 
-    matrix = [[round(wins[r, c] / total_games, 3) for c in names] for r in names]
+    matrix = [[cells[f"{r}|{c}"] for c in names] for r in names]
 
     data = {
         "names": names,

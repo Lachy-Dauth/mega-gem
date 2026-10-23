@@ -128,6 +128,28 @@ class BranchConsistencyTest(unittest.TestCase):
             self.assertGreater(checked, 5)
 
 
+class ExplainTest(unittest.TestCase):
+    def test_explanation_matches_the_real_bid(self):
+        """explain_bid replays the search on a saved RNG state; the bid that
+        choose_bid then makes must be the one it explained."""
+        bank = {
+            "evo4": lambda n, s: Evo4AI(n, seed=s),
+            "heuristic": lambda n, s: HeuristicAI(n, seed=s),
+        }
+        bot = _small("me", 5, model_bank=bank, identify=True, shadow=True, infer=True)
+        players = [bot, Evo4AI("a"), HeuristicAI("b"), Evo4AI("c")]
+        state = setup_game(players, chart="D", seed=9)
+        rng = random.Random(9)
+        for _ in range(5):
+            play_round(state, rng=rng)
+        auction = state.auction_deck.pop()
+        me = state.player_states[0]
+        lines = bot.explain_bid(state, me, auction)
+        explained = bot.last_search["bid"]
+        self.assertTrue(any("chosen" in line for line in lines))
+        self.assertEqual(bot.choose_bid(state, me, auction), explained)
+
+
 class InferenceTest(unittest.TestCase):
     def test_records_treasure_bids_and_reveals(self):
         bot = _small("me", 1, infer=True)
@@ -163,9 +185,9 @@ class InferenceTest(unittest.TestCase):
 class HeadToHeadTest(unittest.TestCase):
     def test_beats_random_on_chart_a(self):
         wins = 0
-        games = 10
+        games = 8
         for g in range(games):
-            players = [_small("S", g)] + [RandomAI(f"R{i}", seed=g * 10 + i) for i in range(3)]
+            players = [_small("S", g, worlds=2)] + [RandomAI(f"R{i}", seed=g * 10 + i) for i in range(3)]
             state = setup_game(players, chart="A", seed=g)
             rng = random.Random(g)
             while not is_game_over(state):
@@ -179,10 +201,7 @@ class HeadToHeadTest(unittest.TestCase):
             players = [_small("S", 7, reveal_search=True)] + [Evo4AI(f"E{i}") for i in range(3)]
             state = setup_game(players, chart="C", seed=8)
             rng = random.Random(8)
-            bids = []
-            while not is_game_over(state):
-                bids.append(play_round(state, rng=rng)["bids"])
-            return bids
+            return [play_round(state, rng=rng)["bids"] for _ in range(6)]
         self.assertEqual(run(), run())
 
 

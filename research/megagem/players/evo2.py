@@ -406,20 +406,32 @@ def _p_player_wins_mission(
             key = tuple(k + ovr.get(c, 0) for k, c in zip(key, _COLORS))
         keys.append(key)
 
-    satisfied, distances, in_play_total = _mission_structure(tuple(keys), mission)
+    coins = [ps.coins for ps in state.player_states]
+    avg_coins = sum(coins) / max(1, n)
+    return _p_wins_from_keys(player_idx, tuple(keys), coins, avg_coins, mission)
+
+
+def _p_wins_from_keys(
+    player_idx: int,
+    keys: tuple[tuple[int, ...], ...],
+    coins: list[int],
+    avg_coins: float,
+    mission: MissionCard,
+) -> float:
+    """:func:`_p_player_wins_mission` on precomputed holdings keys + coins,
+    so callers asking about many missions build them once."""
+    satisfied, distances, in_play_total = _mission_structure(keys, mission)
 
     # Engine tie-break: lowest seat with satisfaction wins.
     if satisfied is not None:
         return 1.0 if satisfied == player_idx else 0.0
-
-    avg_coins = sum(ps.coins for ps in state.player_states) / max(1, n)
 
     scores: list[float] = []
     for idx, distance in enumerate(distances):
         if distance >= _IMPOSSIBLE_DISTANCE or in_play_total < distance:
             scores.append(0.0)
             continue
-        coin_ratio = (state.player_states[idx].coins + 1) / (avg_coins + 1)
+        coin_ratio = (coins[idx] + 1) / (avg_coins + 1)
         score = coin_ratio / (1.0 + distance)
         scores.append(score)
 
@@ -505,14 +517,24 @@ def _mission_probability_delta(
         return 0.0
     likely_opp = max(opp_idxs, key=lambda i: state.player_states[i].coins)
 
+    # Same holdings/coins for every mission: build the "I take the gems"
+    # and "likely opponent takes them" hypotheticals once.
+    base = [_holdings_key(ps.collection_gems) for ps in state.player_states]
+    bump = _holdings_key(extra)
+
+    def with_extra(idx: int) -> tuple[tuple[int, ...], ...]:
+        keys = list(base)
+        keys[idx] = tuple(k + b for k, b in zip(base[idx], bump))
+        return tuple(keys)
+
+    win_keys, lose_keys = with_extra(my_idx), with_extra(likely_opp)
+    coins = [ps.coins for ps in state.player_states]
+    avg_coins = sum(coins) / max(1, state.num_players)
+
     delta = 0.0
     for mission in state.active_missions:
-        p_win = _p_player_wins_mission(
-            my_idx, state, mission, holding_overrides={my_idx: extra}
-        )
-        p_lose = _p_player_wins_mission(
-            my_idx, state, mission, holding_overrides={likely_opp: extra}
-        )
+        p_win = _p_wins_from_keys(my_idx, win_keys, coins, avg_coins, mission)
+        p_lose = _p_wins_from_keys(my_idx, lose_keys, coins, avg_coins, mission)
         delta += (p_win - p_lose) * mission.coins
     return delta
 

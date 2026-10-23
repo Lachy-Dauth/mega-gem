@@ -27,7 +27,7 @@ mega-gem/
 ```bash
 cd research
 
-# Tests (stdlib unittest, no pytest, 122 tests, ~1s)
+# Tests (stdlib unittest, no pytest, 132 tests, ~2s)
 python -m unittest discover
 python -m unittest tests.test_heuristic -v
 python -m unittest tests.test_evo2 -v
@@ -38,7 +38,8 @@ python -m unittest tests.test_heuristic.HyperAdaptiveSplitBidTest.test_invest_us
 python -m megagem
 python -m megagem --all-ai --ai heuristic --seed 1 --quiet      # headless smoke test
 python -m megagem --ai evolved --debug                          # opponent AI rationale + revealed hands
-python -m megagem --ai evo3                                     # play vs the current champion
+python -m megagem --ai search                                   # play vs the current champion (SearchAI)
+python -m megagem --ai evo4                                     # play vs the strongest GA bot
 
 # GA tuners + heatmap (need matplotlib)
 # One unified entry point for all four evolvable bots — `evo1` is the
@@ -50,6 +51,7 @@ python -m scripts.evolve --ai evo2 --opponent self_play         # tunes Evo2AI v
 python -m scripts.evolve --ai evo3                              # tunes Evo3AI vs_all
 python -m scripts.evolve --ai evo4 --opponent vs_evo3           # train evo4 against frozen evo3
 python -m scripts.heatmap_pairwise                              # requires saved_best_weights/*.json
+python -m scripts.generate_heatmap_json                         # web/heatmap_data.json incl. SearchAI (~1.5h on 4 cores, resumable)
 
 ```
 
@@ -89,7 +91,7 @@ The repo has one game engine: `research/megagem/` (Python). The terminal CLI, te
 
 ### Web client (`web/` + `research/megagem/browser.py`)
 
-- `megagem/browser.py` is a frontend adapter like `__main__.py`; the engine knows nothing about it. It owns `AI_FACTORIES` for the site (all six bot kinds, CLI key names), JSON serialization (`serialize_state` etc.; spectator view = `viewer_idx=None` shows every hand), and `BrowserSession` with a step API: `start()` / `bid(n)` / `reveal(color)` / `step()` (spectator) → view dict with `phase in {bid, reveal, ready, game_over}`.
+- `megagem/browser.py` is a frontend adapter like `__main__.py`; the engine knows nothing about it. It owns `AI_FACTORIES` for the site (all seven bot kinds, CLI key names), JSON serialization (`serialize_state` etc.; spectator view = `viewer_idx=None` shows every hand), and `BrowserSession` with a step API: `start()` / `bid(n)` / `reveal(color)` / `step()` (spectator) → view dict with `phase in {bid, reveal, ready, game_over}`.
 - **Snapshot-and-replay for reveals.** The engine is synchronous and the page can't block. The human's bid is preloaded before `play_round` (bids are simultaneous). If the human wins, `_BrowserHuman.choose_gem_to_reveal` raises `_NeedReveal`; the session had deep-copied `(state, rng)` before the round, so on `reveal(color)` it restores the snapshot and replays the round with the answer preloaded. Every AI's RNG/caches and the tie-break RNG live in the snapshot, so the replay is identical. `tests/test_browser.py::ReplayTest` pins this against a direct engine run; keep it passing if you touch the engine's round flow or add AI state outside the player object.
 - **Bot reasoning** (`explain=True`) calls each AI's `explain_bid` on a separate deep copy, so it can never perturb the game.
 - **Weights lookup** uses the uniform `candidate_filenames` chain, then falls back to the **4p** files (all checked-in weights are 4p), then class defaults. The site never errors on missing weights.
@@ -111,7 +113,9 @@ The repo has one game engine: `research/megagem/` (Python). The terminal CLI, te
 3. `HeuristicAI` — fixed `0.75` bid discount; uniform-share display estimator. **This is the old GA's fitness opponent.**
 4. `HyperAdaptiveSplitAI(HeuristicAI)` — pre-Evo2 champion. Inherits reveal logic from `HeuristicAI`; overrides bidding with three independent `_BidModel` heads (`treasure`, `invest`, `loan`) over hypergeometric value estimates and a 5-feature linear discount. 18 tunable constants total = 3 × (1 bias + 5 weights). Construct via class defaults, explicit `_BidModel`s, or `HyperAdaptiveSplitAI.from_weights(name, [18 floats])`. The GA produces individuals with the flat-vector form.
 5. `Evo2AI` (`megagem/players/evo2.py`) — clean-slate evolved AI. Drops `_reserve_for_future`, replaces the `auctions_left/25` progress proxy with an exact closed-form `_expected_rounds_remaining` (multivariate hypergeometric over the auction-deck multiset), drops the `cash_ratio` features in favour of raw integer `my_coins / avg_opp_coins / top_opp_coins`, and gives the treasure head two new per-card features — `ev` and `std` of the prize value — derived from the same hypergeometric distribution. Treasure EV also adds a `_mission_probability_delta` term: a per-mission `(P(I win | I take the gems) − P(I win | likely opponent does)) × mission.coins`, on top of the existing hard/soft mission bonuses. **Heads output the bid in coins directly** (not a discount fraction multiplied by EV/amount): `bid = bias + Σ wᵢ·featureᵢ`, clamped to `[0, cap]` once at `choose_bid`. This frees the GA from the implicit "scale by EV" coupling the discount form baked in. 19 weights (treasure 7 + invest 6 + loan 6); tuned by `python -m scripts.evolve --ai evo2`.
-6. `Evo3AI` (`megagem/players/evo3.py`) — **current champion.** Adds an opponent-pricing signal on top of the Evo2 feature set. After every round the engine calls an optional `observe_round(public_state, my_idx, result)` hook on each player; Evo3 uses it to log `(category, max_opp_bid − baseline)` per auction. Every head reads two new features — a 4×-weighted running `mean_delta` and `std_delta` over the most recent auctions in the same category (treasure/invest/loan) — defaulting to `(0, 1)` before any history exists. **Critical detail:** `baseline` is the bid Evo3 *would* have made with the default `(0, 1)` deltas, not its actual bid. Using the actual bid creates a feedback loop where the signal depends on Evo3's own learned response; caching the default-delta bid on `self._last_default_bid` in `choose_bid` and reading it back in `observe_round` breaks that. 25 weights total (treasure 9 + invest 8 + loan 8); tuned by `python -m scripts.evolve --ai evo3`.
+6. `Evo3AI` (`megagem/players/evo3.py`) — adds an opponent-pricing signal on top of the Evo2 feature set. After every round the engine calls an optional `observe_round(public_state, my_idx, result)` hook on each player; Evo3 uses it to log `(category, max_opp_bid − baseline)` per auction. Every head reads two new features — a 4×-weighted running `mean_delta` and `std_delta` over the most recent auctions in the same category (treasure/invest/loan) — defaulting to `(0, 1)` before any history exists. **Critical detail:** `baseline` is the bid Evo3 *would* have made with the default `(0, 1)` deltas, not its actual bid. Using the actual bid creates a feedback loop where the signal depends on Evo3's own learned response; caching the default-delta bid on `self._last_default_bid` in `choose_bid` and reading it back in `observe_round` breaks that. 25 weights total (treasure 9 + invest 8 + loan 8); tuned by `python -m scripts.evolve --ai evo3`.
+7. `Evo4AI` (`megagem/players/evo4.py`) — Evo3 plus a per-colour bid signal and an evolvable internal opponent-bid predictor. 35 weights. The strongest GA bot.
+8. `SearchAI` (`megagem/players/search.py`) — **current champion.** Not a formula: determinized Monte Carlo search. Per bid it samples worlds (the unseen gem pool dealt into opponents' hands + deck, auction order shuffled), predicts each opponent's bid with a model bot → a *price-to-win threshold* per world, rolls out "lose" vs "win at threshold" to game end, and picks the bid maximising the mean sigmoid of final margin. Layers on top: `identify` (bank of zoo models scored per seat by bid likelihood), `shadow` (per-(seat, model) copies fed every real round so Evo3/Evo4 history features match), `infer` (importance-weight worlds by the likelihood of every past treasure bid, via per-hand bid tables), `rollout_snipe` (own future turns pay only the threshold). Build it with `SearchAI.standard(name, seed=, weights={"evo1".."evo4": vec})`; CLI/browser pass loaded weights. **Invariants, each pinned by a test in `tests/test_search.py`:** (a) never read hidden state, only public info + `unseen_pool` (`NoPeekingTest`); (b) rollouts must replay exactly the opponent bids used to compute the threshold, otherwise the "win" branch can lose (`BranchConsistencyTest`, a real past bug); (c) bookkeeping draws use `_aux_rng` so `explain_bid` (which replays the search on a saved RNG state) matches the real bid. It's slow by bot standards (~0.2s/bid CPython, ~3× that in Pyodide).
 
 ### GA tuners — `scripts/evolve/`
 

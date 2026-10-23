@@ -14,10 +14,16 @@ unsuffixed legacy files.
 Run::
 
     python -m scripts.heatmap_pairwise
+    python -m scripts.heatmap_pairwise --with-search   # adds SearchAI (hours)
+
+SearchAI is opt-in here: at 1000 games/cell its row and column take
+several hours. ``scripts.generate_heatmap_json`` (200 games/cell,
+parallel, resumable) always includes it.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import random
 from pathlib import Path
@@ -36,6 +42,7 @@ from megagem.players import (
     HeuristicAI,
     HyperAdaptiveSplitAI,
     RandomAI,
+    SearchAI,
 )
 
 CHARTS = "ABCDE"
@@ -71,7 +78,7 @@ def _load_evo_weights(profile_key: str) -> list[float] | None:
     return None
 
 
-def make_factories() -> dict:
+def make_factories(with_search: bool = False) -> dict:
     factories: dict = {
         "Random":       lambda name, seed: RandomAI(name, seed=seed),
         "Heuristic":    lambda name, seed: HeuristicAI(name, seed=seed),
@@ -103,6 +110,12 @@ def make_factories() -> dict:
         factories["Evo4"] = lambda name, seed: Evo4AI.from_weights(name, evo4, seed=seed)
     else:
         factories["Evo4"] = lambda name, seed: Evo4AI(name, seed=seed)
+
+    if with_search:
+        weights = {k: _load_evo_weights(k) for k in ("evo1", "evo2", "evo3", "evo4")}
+        factories["Search"] = lambda name, seed: SearchAI.standard(
+            name, seed=seed, weights=weights
+        )
 
     return factories
 
@@ -188,7 +201,10 @@ def print_table(names: list[str], M: np.ndarray) -> None:
 
 
 def main() -> None:
-    factories = make_factories()
+    parser = argparse.ArgumentParser(description="Pairwise win-rate heatmap.")
+    parser.add_argument("--with-search", action="store_true",
+                        help="include SearchAI (adds several hours)")
+    factories = make_factories(with_search=parser.parse_args().with_search)
     print(f"Building {len(factories)}x{len(factories)} pairwise matrix "
           f"({GAMES_PER_CHART * len(CHARTS)} games/cell)...")
     names, M = build_matrix(factories)
