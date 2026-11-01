@@ -11,7 +11,7 @@ This is a research repo. The canonical Python engine, AI zoo, tests, GA tuners, 
 ```
 mega-gem/
 ├── web/                # static client: runs research/megagem in Pyodide (GitHub Pages)
-├── .github/workflows/  # pages.yml: tests on push/PR, deploys Pages from main
+├── .github/workflows/  # pages.yml: tests + CLI smoke test on push/PR (Python 3.13), deploys Pages from main
 ├── README.md
 ├── CLAUDE.md
 └── research/           # Python engine + AI zoo + GA tuners + tests
@@ -51,8 +51,9 @@ python -m scripts.evolve --ai evo2                              # tunes Evo2AI v
 python -m scripts.evolve --ai evo2 --opponent self_play         # tunes Evo2AI via self-play
 python -m scripts.evolve --ai evo3                              # tunes Evo3AI vs_all
 python -m scripts.evolve --ai evo4 --opponent vs_evo3           # train evo4 against frozen evo3
-python -m scripts.heatmap_pairwise                              # requires saved_best_weights/*.json
-python -m scripts.generate_heatmap_json                         # web/heatmap_data.json incl. SearchAI (~1.5h on 4 cores, resumable)
+python -m scripts.cycle_evolve --cycles 3                       # evo1→evo4 in turn, auto-promoting each winner into saved_best_weights/
+python -m scripts.heatmap_pairwise [--with-search]              # local PNG; requires saved_best_weights/*.json
+python -m scripts.generate_heatmap_json [--fresh]               # web/heatmap_data.json, 8×8 incl. Search + Nash (hours on 4 cores, resumable)
 
 ```
 
@@ -76,7 +77,9 @@ python -m scripts.evolve --ai evo3
 cp artifacts/best_weights_evo3_vs_all_4p.json saved_best_weights/
 ```
 
-The `saved_best_weights/` folder currently holds one `vs_all` 4p file per profile: `best_weights_evo{1,2,3,4}_vs_all_4p.json`. The site reads the same files (packed into `megagem.zip`).
+The `saved_best_weights/` folder currently holds one `vs_all` 4p file per profile: `best_weights_evo{1,2,3,4}_vs_all_4p.json` (plus the last `cycle_evolve` plot). The site reads the same files (packed into `megagem.zip`). **`scripts.cycle_evolve` is the one exception to "promotion is explicit"**: it copies each step's winner into `saved_best_weights/` itself, so review `git diff research/saved_best_weights` before committing.
+
+SearchAI and NashAI have no weights of their own: they load the four evo files for their opponent / rollout models, so promoting new evo weights changes them too.
 
 ## Dependencies
 
@@ -103,11 +106,11 @@ The repo has one game engine: `research/megagem/` (Python). The terminal CLI, te
 - `state.py` — pure dataclasses (`GameState`, `PlayerState`). No behavior.
 - `cards.py`, `missions.py`, `value_charts.py` — deck factories and the chart-A..E lookup (`value_for`).
 - `engine.py` — `setup_game`, `play_round`, `score_game`, `max_legal_bid`, `clamp_bid`. Imports the `players` package only under `TYPE_CHECKING`, so the engine has zero runtime dependency on any AI. **Adding a new AI is purely additive and cannot break the engine.**
-- `players/` — `Player` ABC (`base.py`) plus one module per AI (`random_ai.py`, `heuristic.py`, …, `evo2.py`). Shared value-estimation and discount-feature math lives in `players/helpers.py` (`_expected_final_display`, `_treasure_value`, the `_hyper_*` family, `_compute_discount_features`); tests target those helpers directly. `players/__init__.py` re-exports every public name so `from megagem.players import HeuristicAI` continues to work.
+- `players/` — `Player` ABC (`base.py`) plus one module per AI (`random_ai.py`, `heuristic.py`, `hyper_adaptive_split.py`, `evo2.py`…`evo4.py`, `search.py`, `nash.py`). `nash.py` reuses `deal_world` / `build_world_state` from `search.py` (module-level helpers for sampling the hidden cards consistently with public info). Shared value-estimation and discount-feature math lives in `players/helpers.py` (`_expected_final_display`, `_treasure_value`, the `_hyper_*` family, `_compute_discount_features`); tests target those helpers directly. `players/__init__.py` re-exports every public name so `from megagem.players import HeuristicAI` continues to work.
 - `__main__.py` — argparse CLI. New AIs are wired in by adding to the `AI_FACTORIES` dict.
 - `render.py`, `explain.py` — CLI pretty-printing and the `--debug` rationale-printing wrapper.
 
-### AI hierarchy (weakest → strongest, one module per AI under `megagem/players/`)
+### AI hierarchy (one module per AI under `megagem/players/`; 1–8 are weakest → strongest, 9 is a different axis)
 
 1. `RandomAI` — baseline floor.
 2. `HumanPlayer` — interactive console.
@@ -118,7 +121,7 @@ The repo has one game engine: `research/megagem/` (Python). The terminal CLI, te
 7. `Evo4AI` (`megagem/players/evo4.py`) — Evo3 plus a per-colour bid signal and an evolvable internal opponent-bid predictor. 35 weights. The strongest GA bot.
 8. `SearchAI` (`megagem/players/search.py`) — **current champion.** Not a formula: determinized Monte Carlo search. Per bid it samples worlds (the unseen gem pool dealt into opponents' hands + deck, auction order shuffled), predicts each opponent's bid with a model bot → a *price-to-win threshold* per world, rolls out "lose" vs "win at threshold" to game end, and picks the bid maximising the mean sigmoid of final margin. Layers on top: `identify` (bank of zoo models scored per seat by bid likelihood), `shadow` (per-(seat, model) copies fed every real round so Evo3/Evo4 history features match), `infer` (importance-weight worlds by the likelihood of every past treasure bid, via per-hand bid tables), `calibrate` (gated: a seat whose bids fall outside its model's any-hand range ≥2 of its last 8 bids gets its recent errors added to predictions — this is what stops lowballing humans exploiting it; ungated it cost ~3 points vs exact bots), `rollout_snipe` (own future turns pay only the threshold). Build it with `SearchAI.standard(name, seed=, weights={"evo1".."evo4": vec})`; CLI/browser pass loaded weights. **Invariants, each pinned by a test in `tests/test_search.py`:** (a) never read hidden state, only public info + `unseen_pool` (`NoPeekingTest`); (b) rollouts must replay exactly the opponent bids used to compute the threshold, otherwise the "win" branch can lose (`BranchConsistencyTest`, a real past bug); (c) bookkeeping draws use `_aux_rng` so `explain_bid` (which replays the search on a saved RNG state) matches the real bid. It's slow by bot standards (~0.2s/bid CPython, ~3× that in Pyodide).
 
-9. `NashAI` (`megagem/players/nash.py`) — **the hard-to-exploit one.** Per auction: sample worlds; roll out once per possible winner at price 0 *and* at a probe price (≈ half that player's cap) → every player's win/lose payoffs (with externalities) plus a measured coin-cost slope (floored at 1:1); solve the auction's Bayesian game (opponents typed by their value bucket, me uncertain over worlds) with regret matching+ / linear averaging; **sample** the bid from my mixed strategy. `model_weight=α` is a restricted Nash response (each opponent plays the Evo4 model bid with prob. α, else best-responds). **Invariants:** (a) no per-opponent state, so a fresh instance with another seed *is* an exact model of its strategy (that's what makes exploitability measurable); (b) never value a bid 1:1 against a *free-item* rollout — mid-game coins are worth >1 and it once paid 19 for a 20-coin loan (`test_never_buys_a_loan_for_almost_its_face_value`); (c) don't synthesise the paid branch from the free one (tried: −12 points). Exploitability is measured by seating a SearchAI whose only opponent model is the target against 3× target; see README §12.
+9. `NashAI` (`megagem/players/nash.py`) — **the hard-to-exploit one, not the strongest** (SearchAI still beats it head to head; it wins ~50% vs 3× Evo4 and is the hardest bot for a SearchAI exploiter to beat). Per auction: sample worlds; roll out once per possible winner at price 0 *and* at a probe price (≈ half that player's cap) → every player's win/lose payoffs (with externalities) plus a measured coin-cost slope (floored at 1:1); solve the auction's Bayesian game (opponents typed by their value bucket, me uncertain over worlds) with regret matching+ / linear averaging; **sample** the bid from my mixed strategy. `model_weight=α` is a restricted Nash response (each opponent plays the Evo4 model bid with prob. α, else best-responds). **Invariants:** (a) no per-opponent state, so a fresh instance with another seed *is* an exact model of its strategy (that's what makes exploitability measurable); (b) never value a bid 1:1 against a *free-item* rollout — mid-game coins are worth >1 and it once paid 19 for a 20-coin loan (`test_never_buys_a_loan_for_almost_its_face_value`); (c) don't synthesise the paid branch from the free one (tried: −12 points). Exploitability is measured by seating a SearchAI whose only opponent model is the target against 3× target; see README §12.
 
 ### GA tuners — `scripts/evolve/`
 
@@ -144,14 +147,18 @@ One unified package, four AI profiles, eight opponent modes. The CLI is `python 
 
 **Output filenames follow one uniform formula**: `best_weights_{profile_key}_{tag}_{num_players}p.json`, where `tag` is one of `vs_all`, `vs_random`, `vs_heuristic`, `vs_evo1..4`, `self`. The same formula drives the shared `candidate_filenames` lookup chain in `opponents.py`, which is mirrored in `research/megagem/__main__.py` and `research/megagem/browser.py` (the latter adds a 4p fallback). There are no legacy filename fallbacks — the previously-checked-in `best_weights_4p.json` and `best_weights_evo2_vs_old_4p.json` were renamed to `best_weights_evo1_vs_heuristic_4p.json` and `best_weights_evo2_vs_evo1_4p.json` to fit the uniform scheme.
 
-### Heatmap (`scripts/heatmap_pairwise.py`)
+### Heatmaps (`scripts/heatmap_pairwise.py`, `scripts/generate_heatmap_json.py`)
 
-- Default `SEED_START = 200` is **held out** from the GA's training seeds (0..9). If you change the GA's training seed range, update `SEED_START` to stay above it or the generalisation check is meaningless.
+- Two scripts, two outputs. `heatmap_pairwise` draws a local matplotlib PNG to `artifacts/` (`--with-search` adds SearchAI and NashAI). `generate_heatmap_json` builds the matrix the site's bots page shows (`web/heatmap_data.json`, including Search and Nash), runs games in parallel, and is the one to re-run after any bot change. Each has its own `make_factories()`, so a new bot must be registered in both.
+- Default `SEED_START = 200` (defined separately in **both** scripts) is **held out** from the GA's training seeds (0..9). If you change the GA's training seed range, update both to stay above it or the generalisation check is meaningless.
+- **Stale-checkpoint trap.** `generate_heatmap_json` caches finished cells in `artifacts/heatmap_cells.json`, keyed only by chart/seed settings and bot *names*, not by code or weights. After changing a bot or promoting weights, run it with `--fresh` (or delete the affected cells), otherwise the old numbers are silently reused.
 
 ## Testing conventions
 
 - `tests/test_heuristic.py` is intentionally large. Each shared helper gets a focused unit test before the AI itself is exercised; head-to-head tests at the end run ~60 games per pair and finish in well under a second.
-- When adding a new AI, follow the existing `HeadToHeadTest` pattern: at minimum, prove it beats `RandomAI` at ≥60% on chart A. If it should also appear in the all-vs-all heatmap, register it in `scripts/heatmap_pairwise.py`'s `make_factories()`.
+- When adding a new AI, follow the existing `HeadToHeadTest` pattern: at minimum, prove it beats `RandomAI` at ≥60% on chart A. If it should also appear in the heatmaps, register it in the `make_factories()` of both heatmap scripts (see above), and wire it into `AI_FACTORIES` in both `megagem/__main__.py` and `megagem/browser.py` plus the roster in `web/app.js`.
+- Search-based bots are slow, so their tests use tiny configs (e.g. `NashAI(..., worlds=3, iterations=40)`). Keep the suite at ~10s; measure strength with long arena runs outside the suite, not with unit tests.
+- Strength and exploitability claims in README/bots page come from 100–200-game runs (±4–6 points). Compare variants on the **same seeds** and report the paired difference with its standard error; don't call a gap smaller than ~2σ a win.
 
 ## Gotchas
 

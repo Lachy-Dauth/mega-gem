@@ -41,6 +41,7 @@ from megagem.players import (
     Evo4AI,
     HeuristicAI,
     HyperAdaptiveSplitAI,
+    NashAI,
     RandomAI,
     SearchAI,
 )
@@ -115,6 +116,9 @@ def make_factories(with_search: bool = False) -> dict:
         weights = {k: _load_evo_weights(k) for k in ("evo1", "evo2", "evo3", "evo4")}
         factories["Search"] = lambda name, seed: SearchAI.standard(
             name, seed=seed, weights=weights
+        )
+        factories["Nash"] = lambda name, seed: NashAI(
+            name, seed=seed, model_weights=weights["evo4"]
         )
 
     return factories
@@ -203,7 +207,7 @@ def print_table(names: list[str], M: np.ndarray) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pairwise win-rate heatmap.")
     parser.add_argument("--with-search", action="store_true",
-                        help="include SearchAI (adds several hours)")
+                        help="include SearchAI and NashAI (adds several hours)")
     factories = make_factories(with_search=parser.parse_args().with_search)
     print(f"Building {len(factories)}x{len(factories)} pairwise matrix "
           f"({GAMES_PER_CHART * len(CHARTS)} games/cell)...")
